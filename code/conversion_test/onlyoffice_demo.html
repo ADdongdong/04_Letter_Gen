@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>银行函证 制函演示 - Excel 直填 + OnlyOffice</title>
+    <script src="http://113.201.2.61:14002/onlyoffice/web-apps/apps/api/documents/api.js"></script>
+    <style>
+        * { box-sizing: border-box; }
+        body { margin: 0; font-family: "Microsoft YaHei", Arial, sans-serif; background: #f0f2f5; overflow: hidden; }
+        #topbar { height: 44px; background: #534AB7; color: #fff; display: flex; align-items: center; padding: 0 16px; }
+        #topbar .title { font-size: 15px; font-weight: bold; }
+        #topbar .sub { font-size: 12px; opacity: .85; margin-left: 16px; }
+        #topbar .status { margin-left: auto; font-size: 12px; opacity: .9; }
+        #main { display: flex; height: calc(100vh - 44px); }
+        #editor-wrap { flex: 1; position: relative; }
+        #placeholder { width: 100%; height: 100%; }
+        #panel { width: 320px; background: #fff; border-left: 1px solid #e0e0e0; display: flex; flex-direction: column; overflow: hidden; }
+        .panel-header { padding: 12px 14px; border-bottom: 1px solid #eee; font-weight: bold; font-size: 13px; background: #fafafa; }
+        .panel-body { flex: 1; overflow-y: auto; padding: 12px 14px; }
+        .section-title { font-size: 12px; color: #534AB7; font-weight: bold; margin: 14px 0 8px; border-left: 3px solid #534AB7; padding-left: 8px; }
+        .sheet-item { border: 1px solid #ddd; border-radius: 6px; padding: 8px; margin: 6px 0; cursor: pointer; font-size: 12px; transition: all .2s; }
+        .sheet-item:hover { border-color: #534AB7; }
+        .sheet-item.selected { background: #534AB7; color: #fff; border-color: #534AB7; }
+        .sheet-item .name { font-weight: bold; }
+        .sheet-item .meta { font-size: 11px; opacity: .7; margin-top: 3px; }
+        .pos-item { border: 1px solid #ddd; border-radius: 6px; padding: 8px; margin: 6px 0; cursor: pointer; font-size: 12px; }
+        .pos-item:hover { border-color: #534AB7; }
+        .pos-item.selected { border: 2px solid #534AB7; background: #f0f0ff; }
+        .btn { display: block; width: 100%; padding: 9px; margin-top: 10px; border: none; border-radius: 6px; background: #534AB7; color: #fff; font-size: 13px; cursor: pointer; }
+        .btn:hover { background: #433A9A; }
+        .btn:disabled { background: #aaa; cursor: not-allowed; }
+        .bind-list { margin-top: 8px; }
+        .bind-item { background: #f7f7fb; border: 1px solid #e0e0e0; border-radius: 5px; padding: 6px 8px; margin: 4px 0; font-size: 12px; display: flex; justify-content: space-between; align-items: center; }
+        .bind-item .del { color: #d9534f; cursor: pointer; font-weight: bold; }
+        .hint { font-size: 11px; color: #999; margin-top: 6px; line-height: 1.5; }
+        #renderMsg { font-size: 12px; margin-top: 8px; color: #2e7d32; }
+    </style>
+</head>
+<body>
+    <div id="topbar">
+        <span class="title">银行函证制函演示</span>
+        <span class="sub">Excel 直填模式 · OnlyOffice 模板编辑</span>
+        <span class="status" id="status">加载中...</span>
+    </div>
+    <div id="main">
+        <!-- 左侧：OnlyOffice 编辑器 -->
+        <div id="editor-wrap">
+            <div id="placeholder"></div>
+        </div>
+        <!-- 右侧：Sheet 绑定面板 -->
+        <div id="panel">
+            <div class="panel-header">📊 Excel 数据 与 模板绑定</div>
+            <div class="panel-body">
+                <div class="section-title">1. 选择 Excel Sheet</div>
+                <div id="sheetList"></div>
+
+                <div class="section-title">2. 选择模板位置</div>
+                <div id="posList"></div>
+
+                <button class="btn" id="bindBtn" disabled onclick="addBinding()">＋ 绑定：Sheet → 模板位置</button>
+
+                <div class="section-title">3. 已绑定列表</div>
+                <div class="bind-list" id="bindList"></div>
+
+                <button class="btn" id="renderBtn" onclick="render()">🚀 生成函证</button>
+                <div id="renderMsg"></div>
+                <div class="hint">说明：选择 Sheet 和模板位置后点击"绑定"，可将 Sheet 数据填充到模板表格中。此为演示 Demo，使用独立测试文档，不影响生产系统。</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        var docEditor = null;
+        var uniqueKey = 'demo-' + Date.now();
+        var params = new URLSearchParams(window.location.search);
+        var docUrl = params.get('doc') || 'http://192.168.100.92:8899/demo_template.docx';
+
+        // ===== 预设 Excel Sheet 数据（模拟用户上传的 Excel） =====
+        var sheets = [
+            { name: '销售与未结算', header: ['科目名称','截止日期','贵公司欠','欠贵公司','备注'], rows: 4, desc: '5列 · 销售采购科目' },
+            { name: '应收票据', header: ['出票日期','票据编号','金额','到期日'], rows: 3, desc: '4列 · 应收票据明细' },
+            { name: '其他往来款', header: ['对方单位','款项性质','金额','说明'], rows: 2, desc: '4列 · 其他往来事项' }
+        ];
+
+        // ===== 预设模板位置 =====
+        var positions = [
+            { id: 0, label: '一、贵公司欠本公司款项（表格1）' },
+            { id: 1, label: '二、本公司欠贵公司款项（表格2）' },
+            { id: 2, label: '三、应收票据明细（表格3）' },
+            { id: 3, label: '四、其他往来事项（表格4）' }
+        ];
+
+        var selSheet = null;
+        var selPos = null;
+        var binds = [];
+
+        // ===== 初始化 OnlyOffice 编辑器 =====
+        function initEditor() {
+            if (typeof DocsAPI === 'undefined') {
+                document.getElementById('status').textContent = 'api.js 加载失败';
+                return;
+            }
+            try {
+                docEditor = new DocsAPI.DocEditor("placeholder", {
+                    document: {
+                        fileType: "docx",
+                        key: uniqueKey,
+                        title: "银行询证函模板",
+                        url: docUrl,
+                        permissions: { download: true, print: true, edit: true }
+                    },
+                    documentType: "word",
+                    width: "100%",
+                    height: "100%",
+                    editorConfig: {
+                        mode: "edit",
+                        lang: "zh-CN",
+                        customization: { autosave: false, toolbar: true }
+                    },
+                    events: {
+                        onAppReady: function() { setStatus('编辑器已就绪'); },
+                        onDocumentReady: function() { setStatus('模板已加载 ✓'); },
+                        onError: function(e) { setStatus('错误: ' + (e && e.errorDescription || '')); }
+                    }
+                });
+            } catch (e) {
+                document.getElementById('status').textContent = '初始化异常: ' + e.message;
+            }
+        }
+        function setStatus(t) { document.getElementById('status').textContent = t; }
+
+        // ===== 渲染 Sheet 列表 =====
+        function renderSheets() {
+            var box = document.getElementById('sheetList');
+            box.innerHTML = sheets.map(function(s, i) {
+                return '<div class="sheet-item" onclick="selSheetFn(' + i + ')" id="sheet_' + i + '">' +
+                    '<div class="name">📄 ' + s.name + '</div>' +
+                    '<div class="meta">表头: ' + s.header.join(' · ') + ' | ' + s.rows + ' 行数据</div>' +
+                    '</div>';
+            }).join('');
+        }
+        function selSheetFn(i) {
+            selSheet = sheets[i];
+            document.querySelectorAll('.sheet-item').forEach(function(el, idx) {
+                el.classList.toggle('selected', idx === i);
+            });
+            updateBindBtn();
+        }
+
+        // ===== 渲染模板位置列表 =====
+        function renderPositions() {
+            var box = document.getElementById('posList');
+            box.innerHTML = positions.map(function(p, i) {
+                return '<div class="pos-item" onclick="selPosFn(' + i + ')" id="pos_' + i + '">📍 ' + p.label + '</div>';
+            }).join('');
+        }
+        function selPosFn(i) {
+            selPos = positions[i];
+            document.querySelectorAll('.pos-item').forEach(function(el, idx) {
+                el.classList.toggle('selected', idx === i);
+            });
+            updateBindBtn();
+        }
+
+        // ===== 绑定 =====
+        function updateBindBtn() {
+            document.getElementById('bindBtn').disabled = !(selSheet && selPos);
+        }
+        function addBinding() {
+            if (!selSheet || !selPos) return;
+            // 避免重复绑定同一位置
+            if (binds.some(function(b) { return b.posId === selPos.id; })) {
+                alert('该位置已绑定，请选择其他位置或删除原绑定');
+                return;
+            }
+            binds.push({ sheet: selSheet.name, posId: selPos.id, posLabel: selPos.label });
+            renderBindList();
+        }
+        function removeBinding(i) {
+            binds.splice(i, 1);
+            renderBindList();
+        }
+        function renderBindList() {
+            var box = document.getElementById('bindList');
+            box.innerHTML = binds.map(function(b, i) {
+                return '<div class="bind-item"><span>📄 ' + b.sheet + ' → ' + b.posLabel + '</span><span class="del" onclick="removeBinding(' + i + ')">✕</span></div>';
+            }).join('');
+        }
+
+        // ===== 渲染 =====
+        function render() {
+            var msg = document.getElementById('renderMsg');
+            if (!binds.length) { alert('请先添加至少一个绑定'); return; }
+            msg.textContent = '生成中...';
+            // 演示：这里提示生成逻辑（后续对接后端渲染）
+            setTimeout(function() {
+                msg.innerHTML = '✅ 演示：已按 ' + binds.length + ' 个绑定生成函证。<br>（正式版将在此处生成可下载的 PDF/docx）';
+            }, 800);
+        }
+
+        // 初始化
+        renderSheets();
+        renderPositions();
+        if (typeof DocsAPI !== 'undefined') {
+            initEditor();
+        } else {
+            window.addEventListener('load', function() { setTimeout(initEditor, 1000); });
+        }
+    </script>
+</body>
+</html>

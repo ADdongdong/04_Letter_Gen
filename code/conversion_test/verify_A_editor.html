@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>OnlyOffice 验证点A - 独立key编辑器加载测试</title>
+    <!-- 加载远程 OnlyOffice 文档服务器 api.js -->
+    <script src="http://113.201.2.61:14002/onlyoffice/web-apps/apps/api/documents/api.js"></script>
+    <style>
+        body { margin: 0; font-family: Arial, sans-serif; }
+        #status { padding: 10px; background: #f0f0f0; border-bottom: 1px solid #ccc; font-size: 13px; }
+        #placeholder { width: 100%; height: 100vh; }
+    </style>
+</head>
+<body>
+    <div id="status">加载 OnlyOffice 编辑器中...（独立 key，不影响其他系统）</div>
+    <div id="placeholder"></div>
+
+    <script>
+        // 独立 key：带时间戳，确保不与其他系统冲突
+        var uniqueKey = 'test-verify-' + Date.now();
+
+        function initEditor() {
+            if (typeof DocsAPI === 'undefined') {
+                document.getElementById('status').textContent = '错误：DocsAPI 未定义，api.js 可能加载失败（CORS 或网络）';
+                return;
+            }
+            document.getElementById('status').textContent = 'DocsAPI 已加载，初始化编辑器，key=' + uniqueKey;
+
+            try {
+                var docEditor = new DocsAPI.DocEditor("placeholder", {
+                    document: {
+                        fileType: "docx",
+                        key: uniqueKey,
+                        title: "验证测试文档_" + uniqueKey,
+                        url: "http://113.201.2.61:14002/onlyoffice/web-apps/../../example.docx"
+                        // ^ 占位 docUrl（OnlyOffice 需拉取该文件，本验证主要看编辑器框架能否加载）
+                    },
+                    documentType: "word",
+                    width: "100%",
+                    height: "100%",
+                    editorConfig: {
+                        mode: "edit",
+                        lang: "zh-CN",
+                        callbackUrl: ""  // 不设置回调，避免写操作
+                    }
+                });
+
+                // 监听编辑器事件（只读观察，不产生副作用）
+                docEditor.on('onAppReady', function() {
+                    document.getElementById('status').textContent = '✅ 编辑器已就绪 (onAppReady)，独立 key: ' + uniqueKey;
+                });
+                docEditor.on('onDocumentStateChange', function() {
+                    document.getElementById('status').textContent += ' | 文档状态已变化';
+                });
+                docEditor.on('onError', function(e) {
+                    document.getElementById('status').textContent = '⚠️ 编辑器错误: ' + JSON.stringify(e);
+                });
+            } catch (e) {
+                document.getElementById('status').textContent = '初始化异常: ' + e.message;
+            }
+        }
+
+        // 等待 api.js 加载
+        if (typeof DocsAPI !== 'undefined') {
+            initEditor();
+        } else {
+            window.addEventListener('load', function() {
+                setTimeout(initEditor, 500);
+            });
+        }
+    </script>
+</body>
+</html>
