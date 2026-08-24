@@ -1,0 +1,9 @@
+[2m15:15:55[22m [31m[1m[vite][22m[39m [31mws proxy socket error:[39m
+Error: read ECONNRESET
+    at TCP.onStreamRead (node:internal/stream_base_commons:216:20)
+[2m15:16:56[22m [31m[1m[vite][22m[39m [31mws proxy socket error:[39m
+Error: read ECONNRESET
+    at TCP.onStreamRead (node:internal/stream_base_commons:216:20)
+[2m15:17:02[22m [31m[1m[vite][22m[39m [31mws proxy socket error:[39m
+Error: read ECONNRESET
+    at TCP.onStreamRead (node:internal/stream_base_commons:216:20)

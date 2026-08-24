@@ -1,4 +1,4 @@
-import React, { forwardRef, useImperativeHandle, useRef, memo } from 'react';
+import React, { forwardRef, useImperativeHandle, useRef, memo, useMemo } from 'react';
 import { DocumentEditor } from '@onlyoffice/document-editor-react';
 
 /**
@@ -120,10 +120,13 @@ const OnlyOfficeEditor = memo(forwardRef(({ docUrl, onReady }, ref) => {
     },
   }));
 
-  const config = {
+  // 用 useMemo 锁定 config 引用稳定，避免 React 重复渲染触发 OO SDK 重建 iframe
+  // 关键：document.key 不能含 Date.now()，否则 OO SDK 会死循环卸载/重建
+  const config = useMemo(() => ({
     document: {
       fileType: 'docx',
-      key: 'zhihanyou-demo-v2-' + new Date().toISOString().slice(0,10),  // 版本化 key，修复后需更新强制重新下载
+      // 容器内该 key 已有转换好的 Editor.bin 缓存（绕过 docservie 缺失 /coauthoring/convert 端点）
+      key: 'zhihanyou-demo-v2-' + new Date().toISOString().slice(0, 10),  // 必须与容器内 cache 目录一致
       title: '银行询证函模板',
       url: docUrl,
     },
@@ -131,7 +134,10 @@ const OnlyOfficeEditor = memo(forwardRef(({ docUrl, onReady }, ref) => {
     editorConfig: {
       mode: 'edit',
       lang: 'zh-CN',
-      customization: { autosave: false, toolbar: true },
+      customization: {
+        autosave: false,
+        toolbar: true,
+      },
     },
     events: {
       onAppReady: () => {
@@ -143,7 +149,8 @@ const OnlyOfficeEditor = memo(forwardRef(({ docUrl, onReady }, ref) => {
         if (onReady) onReady();
       },
     },
-  };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), []);  // 故意空依赖：只挂载时计算一次，docUrl 变化用 key 重新挂载
 
   return (
     <DocumentEditor

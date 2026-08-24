@@ -8,7 +8,7 @@ import os, sys, subprocess, threading, time, io, urllib.request, socket
 
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
-ROOT = r'e:\13_dingdian\03_demo\04_制函优化'
+ROOT = r'e:\13_dingdian\03_demo\04_Letter_Gen'
 RV_DIR = os.path.join(ROOT, 'code', 'render_verify')
 CONV_DIR = os.path.join(ROOT, 'code', 'conversion_test')
 PYTHON = sys.executable  # 当前解释器
@@ -35,18 +35,21 @@ def start_static(port):
     print(f"[静态{port}] 已启动 (PID {p.pid}) -> http://127.0.0.1:{port}/")
 
 def start_flask():
-    """启动 render_verify Flask"""
+    """启动 render_verify Flask（日志写入 flask_oo.log，便于测试排查）"""
     if port_in_use(5002):
         print("[Flask5002] 端口已占用，跳过（可能已在运行）")
         return
+    log_path = os.path.join(RV_DIR, 'flask_oo.log')
+    logf = open(log_path, 'a', encoding='utf-8')
+    logf.write("\n==== 启动于 %s ====\n" % time.strftime('%Y-%m-%d %H:%M:%S'))
     p = subprocess.Popen(
         [PYTHON, 'app.py'],
         cwd=RV_DIR,
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        stdout=logf, stderr=subprocess.STDOUT,
         creationflags=subprocess.CREATE_NO_WINDOW if hasattr(subprocess, 'CREATE_NO_WINDOW') else 0,
     )
     RUNNING.append(p)
-    print(f"[Flask5002] 已启动 (PID {p.pid}) -> http://127.0.0.1:5002/demo")
+    print(f"[Flask5002] 已启动 (PID {p.pid}) -> http://127.0.0.1:5002/demo  (日志: code/render_verify/flask_oo.log)")
 
 def verify():
     time.sleep(3)
