@@ -24,7 +24,7 @@ REM --- 2. 启动 Flask 5002 + 静态 8899 (Python 启动器) ---
 
 REM --- 3. 启动 React 前端 5173 (vite dev) ---
 echo [启动] React 前端 (vite dev) -> http://127.0.0.1:5173/
-start "react_app_5173" /B "C:\nvm4w\nodejs\npm.cmd" run dev --prefix "e:\13_dingdian\03_demo\04_Letter_Gen\react_app"
+start "" /B cmd /c "C:\nvm4w\nodejs\npm.cmd run dev --prefix e:\13_dingdian\03_demo\04_Letter_Gen\react_app"
 
 echo.
 echo 全部服务已在后台启动，可直接打开 http://127.0.0.1:5173/ 测试
