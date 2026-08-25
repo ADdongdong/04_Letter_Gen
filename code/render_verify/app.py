@@ -3,22 +3,47 @@
 制函渲染验证服务 - Flask Web 应用
 启动: python app.py  → http://127.0.0.1:5002
 """
-import io, os, uuid, json, shutil, socket
+import io, os, uuid, json, re, shutil, socket
+from datetime import datetime
 from flask import Flask, request, render_template_string, jsonify, send_file, url_for
 
 from render_engine import (
     read_excel_sheets, render_template, get_text_width, _table_width_twips,
-    extract_anchors, annotate_bindings,
+    extract_anchors, annotate_bindings, extract_placeholders, render_by_template,
 )
 from docx import Document
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 UPLOAD_DIR = os.path.join(BASE_DIR, 'uploads')
 OUTPUT_DIR = os.path.join(BASE_DIR, 'outputs')
+TEMPLATES_DIR = os.path.join(BASE_DIR, '..', '..', 'data', 'templates')
+TEMPLATES_JSON = os.path.join(TEMPLATES_DIR, 'templates.json')
+LEDGER_JSON = os.path.join(BASE_DIR, '..', '..', 'data', 'ledger.json')
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(OUTPUT_DIR, exist_ok=True)
+os.makedirs(TEMPLATES_DIR, exist_ok=True)
 
 DEFAULT_TPL = os.path.join(BASE_DIR, '..', 'conversion_test', 'demo_template.docx')
+BLANK_TPL = os.path.join(TEMPLATES_DIR, 'blank.docx')
+
+# 确保空白模板存在（新建模板时左侧直接加载空白 Word）
+if not os.path.exists(BLANK_TPL):
+    Document().save(BLANK_TPL)
+
+
+def _resolve_source_path(source):
+    """解析 source 为实际 docx 文件路径：default/blank 或模板 id"""
+    if source == 'default':
+        return DEFAULT_TPL
+    if source == 'blank':
+        if not os.path.exists(BLANK_TPL):
+            Document().save(BLANK_TPL)
+        return BLANK_TPL
+    items = _load_templates_json()
+    t = next((x for x in items if x.get('id') == source), None)
+    return t.get('path') if t else None
+
+
 # OnlyOffice 通过 http 加载 docx，必须用本机可被 OnlyOffice 访问的内网 IP
 try:
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -181,6 +206,561 @@ def download(fname):
     if not os.path.exists(path):
         return jsonify({'error': '文件不存在'}), 404
     return send_file(path, as_attachment=True, download_name='渲染结果.docx')
+
+
+# ============ 模板化批量制函（2026-08-24 新增）============
+
+def _load_templates_json():
+    """读取模板清单，不存在则返回 []"""
+    if not os.path.exists(TEMPLATES_JSON):
+        return []
+    try:
+        with open(TEMPLATES_JSON, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except Exception:
+        return []
+
+
+def _save_templates_json(items):
+    """写入模板清单"""
+    with open(TEMPLATES_JSON, 'w', encoding='utf-8') as f:
+        json.dump(items, f, ensure_ascii=False, indent=2)
+
+
+def _load_ledger():
+    """读取函证台账（demo 模拟数据），不存在则返回 []"""
+    if not os.path.exists(LEDGER_JSON):
+        return []
+    try:
+        with open(LEDGER_JSON, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except Exception:
+        return []
+
+
+def _parse_letter_no(filename):
+    """从文件名解析函证编号：取首个 '_' 前段；无 '_' 则原样返回文件名（去扩展名）"""
+    base = os.path.splitext(os.path.basename(filename))[0]
+    if '_' in base:
+        return base.split('_', 1)[0]
+    return base
+
+
+@app.route('/api/excel_sheets', methods=['POST'])
+def excel_sheets():
+    """解析上传 Excel 的 Sheet 列表，供快速导入制函选择位置。返回 {sheets: [{name}]}"""
+    f = request.files.get('file')
+    if not f or not f.filename.lower().endswith(('.xlsx', '.xlsm')):
+        return jsonify({'error': '请上传 Excel 文件（.xlsx）'}), 400
+    tmp = os.path.join(UPLOAD_DIR, f'q_sheets_{uuid.uuid4().hex[:8]}.xlsx')
+    try:
+        f.save(tmp)
+        wb = openpyxl.load_workbook(tmp, read_only=True, data_only=True)
+        sheets = [{'name': ws.title} for ws in wb.worksheets]
+        wb.close()
+    except Exception as e:
+        return jsonify({'error': 'Excel 解析失败: ' + str(e)}), 400
+    finally:
+        try:
+            if os.path.exists(tmp):
+                os.remove(tmp)
+        except Exception:
+            pass
+    return jsonify({'sheets': sheets})
+
+
+def _match_ledger(letter_no):
+    """按函证编号查台账，返回台账行或 None"""
+    ledger = _load_ledger()
+    for row in ledger:
+        if row.get('函证编号') == letter_no:
+            return row
+    return None
+
+
+@app.route('/api/template_save', methods=['POST'])
+def template_save():
+    """
+    保存模板：前端提交 bindings（占位符绑定）→ 基于源模板生成带占位符 docx → 扫描提取绑定规则 → 存 data/templates/。
+    JSON 字段:
+        id: 可选；提供时表示「修改」该模板（原地更新，id 不变）
+        name: 模板名称
+        bindings: [{pos_index, sheet_name, pos_label?}] 占位符绑定（按插入顺序）
+        source: 'default' / 'blank' 或已存模板 id（决定基于哪个 docx 生成）
+    返回: 模板 id、绑定规则列表
+    """
+    data = request.get_json(silent=True) or {}
+    name = (data.get('name') or '').strip()
+    bindings = data.get('bindings', [])
+    source = data.get('source') or 'default'
+    excel_name = (data.get('excel_name') or '').strip()
+    template_id = data.get('id')  # 修改模式：原地更新该 id
+
+    if not bindings:
+        return jsonify({'error': '请至少提供一个占位符绑定'}), 400
+    if not name:
+        return jsonify({'error': '请填写模板名称'}), 400
+
+    # 确定源模板 docx
+    src_tpl = _resolve_source_path(source)
+    if not src_tpl or not os.path.exists(src_tpl):
+        return jsonify({'error': '源模板不存在: ' + str(source)}), 400
+
+    # 防止模板名含非法路径字符
+    safe_name = re.sub(r'[\\/:*?"<>|]', '_', name)
+    items = _load_templates_json()
+
+    # =================== 修改模式：id 已存在，原地更新 ===================
+    if template_id:
+        existing = next((t for t in items if t.get('id') == template_id), None)
+        if not existing:
+            return jsonify({'error': '模板不存在'}), 404
+        # 若改名，不得与其他模板重名
+        conflict = next((t for t in items if t.get('name') == name and t.get('id') != template_id), None)
+        if conflict:
+            return jsonify({'error': f'模板名称「{name}」已存在，请使用其他名称'}), 409
+
+        # 基于源 docx 生成新文件
+        uid = uuid.uuid4().hex[:8]
+        tpl_path = os.path.join(TEMPLATES_DIR, f'{uid}_{safe_name}.docx')
+        try:
+            annotate_bindings(src_tpl, bindings, tpl_path)
+            doc = Document(tpl_path)
+            placeholders = extract_placeholders(doc)
+            tpl_bindings = [{'sheet_name': ph['sheet_name'], 'para_index': ph['para_index']} for ph in placeholders]
+        except Exception as e:
+            return jsonify({'error': '模板生成失败: ' + str(e)}), 400
+
+        old_path = existing.get('path')
+        existing.update({
+            'name': name,
+            'path': tpl_path,
+            'bindings': tpl_bindings,
+            'excel_name': excel_name,
+            'updated_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        })
+        _save_templates_json(items)
+
+        # 删除旧 docx（容错）
+        try:
+            if old_path and os.path.exists(old_path) and old_path != tpl_path:
+                os.remove(old_path)
+        except Exception:
+            pass
+
+        return jsonify({
+            'id': template_id,
+            'name': name,
+            'path': tpl_path,
+            'bindings': tpl_bindings,
+            'excel_name': excel_name,
+            'placeholder_count': len(placeholders),
+        })
+
+    # =================== 新建模式：无 id，拒绝同名 ===================
+    if any(t.get('name') == name for t in items):
+        return jsonify({'error': f'模板名称「{name}」已存在，请使用其他名称'}), 409
+
+    uid = uuid.uuid4().hex[:8]
+    tpl_path = os.path.join(TEMPLATES_DIR, f'{uid}_{safe_name}.docx')
+    try:
+        annotate_bindings(src_tpl, bindings, tpl_path)
+        doc = Document(tpl_path)
+        placeholders = extract_placeholders(doc)
+        tpl_bindings = [{'sheet_name': ph['sheet_name'], 'para_index': ph['para_index']} for ph in placeholders]
+    except Exception as e:
+        return jsonify({'error': '模板生成失败: ' + str(e)}), 400
+
+    items.append({
+        'id': uid,
+        'name': name,
+        'path': tpl_path,
+        'bindings': tpl_bindings,
+        'excel_name': excel_name,
+        'updated_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+    })
+    _save_templates_json(items)
+
+    return jsonify({
+        'id': uid,
+        'name': name,
+        'path': tpl_path,
+        'bindings': tpl_bindings,
+        'excel_name': excel_name,
+        'placeholder_count': len(placeholders),
+    })
+
+
+@app.route('/api/templates')
+def templates():
+    """列出所有已配置模板及绑定规则"""
+    items = _load_templates_json()
+    return jsonify({'templates': items})
+
+
+@app.route('/api/match_excel', methods=['POST'])
+def match_excel():
+    """
+    批量制函第一步（同页）：上传多个 Excel → 解析文件名取函证编号 → 查台账 → 返回三态匹配结果。
+    所有上传文件均列入列表（不丢弃）：
+      status: 'ok'     自动匹配（文件名解析出的编号在台账中）
+      status: 'pending' 待补编号（解析失败 / 台账暂无）
+      status: 'fail'   补后仍无（前端已手填但仍不在台账，由前端以 manual_no 重传触发）
+    请求: form 字段 file（可多个 excel），可选 manual_no_map（JSON: {原文件名: 手动函证编号}）
+    返回: list: [{file, letter_no, status, ledger(台账行或null)}]
+    """
+    files = request.files.getlist('file')
+    manual_map = {}
+    mraw = request.form.get('manual_no_map')
+    if mraw:
+        try:
+            manual_map = json.loads(mraw)
+        except Exception:
+            manual_map = {}
+
+    if not files:
+        return jsonify({'error': '请上传至少一个 Excel'}), 400
+
+    results = []
+    for f in files:
+        if not f or not f.filename.lower().endswith(('.xlsx', '.xlsm')):
+            continue
+        fname = f.filename
+        # 手动补编号优先：前端传了则用，否则从文件名解析
+        letter_no = manual_map.get(fname)
+        if not letter_no:
+            letter_no = _parse_letter_no(fname)
+        ledger = _match_ledger(letter_no)
+        status = 'ok' if ledger else 'pending'
+        results.append({
+            'file': fname,
+            'letter_no': letter_no,
+            'status': status,
+            'ledger': ledger,
+        })
+    return jsonify({'matches': results})
+
+
+
+
+
+@app.route('/api/template_delete', methods=['POST'])
+def template_delete():
+    """删除模板（按 id），同时删除 docx 文件"""
+    data = request.get_json() or {}
+    tid = data.get('id')
+    items = _load_templates_json()
+    target = next((t for t in items if t.get('id') == tid), None)
+    if not target:
+        return jsonify({'error': '模板不存在'}), 404
+    items = [t for t in items if t.get('id') != tid]
+    _save_templates_json(items)
+    try:
+        if os.path.exists(target.get('path', '')):
+            os.remove(target['path'])
+    except Exception:
+        pass
+    return jsonify({'ok': True})
+
+
+@app.route('/api/oo/template/<tid>')
+def oo_get_saved_template(tid):
+    """OnlyOffice 通过此 URL 下载「模板 docx」：
+    - tid='blank' → 返回空白模板（新建模板初始画布）
+    - tid='default' → 返回默认模板 demo_template.docx
+    - 其他 → 返回已保存模板（配置模板时重新打开）
+    """
+    if tid == 'blank':
+        if not os.path.exists(BLANK_TPL):
+            Document().save(BLANK_TPL)
+        return send_file(
+            BLANK_TPL,
+            mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            download_name='blank.docx',
+            as_attachment=False,
+        )
+    if tid == 'default':
+        if not os.path.exists(DEFAULT_TPL):
+            return jsonify({'error': '默认模板不存在'}), 404
+        return send_file(
+            DEFAULT_TPL,
+            mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            download_name='demo_template.docx',
+            as_attachment=False,
+        )
+    items = _load_templates_json()
+    tpl = next((t for t in items if t.get('id') == tid), None)
+    if not tpl or not os.path.exists(tpl.get('path', '')):
+        return jsonify({'error': '模板不存在'}), 404
+    return send_file(
+        tpl['path'],
+        mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        download_name=os.path.basename(tpl['path']),
+        as_attachment=False,
+    )
+
+
+@app.route('/api/upload_template_oo', methods=['POST'])
+def upload_template_oo():
+    """
+    上传用户自己的 Word 模板（.docx）→ 保存到 templates 目录 → 写入清单（bindings 后置）→
+    返回 OnlyOffice 可打开的 URL（/api/oo/template/<id>），供前端加载到编辑器。
+    """
+    f = request.files.get('file')
+    if not f:
+        return jsonify({'error': '未收到文件'}), 400
+    if not f.filename.lower().endswith('.docx'):
+        return jsonify({'error': '仅支持 .docx 模板文件'}), 400
+    name = (request.form.get('name') or '').strip() or os.path.splitext(f.filename)[0]
+    safe_name = re.sub(r'[\\/:*?"<>|]', '_', name)
+
+    items = _load_templates_json()
+    # 模板名称全局唯一：上传新模板时若名称已存在，直接拒绝
+    if any(t.get('name') == name for t in items):
+        return jsonify({'error': f'模板名称「{name}」已存在，请修改名称后重新上传'}), 409
+
+    uid = uuid.uuid4().hex[:8]
+    tpl_path = os.path.join(TEMPLATES_DIR, f'{uid}_{safe_name}.docx')
+    try:
+        f.save(tpl_path)
+    except Exception as e:
+        return jsonify({'error': '保存失败: ' + str(e)}), 500
+
+    # 上传的模板占位符绑定待用户在 OnlyOffice 中插入/保存时补全；此处先登记为「未配置绑定」
+    items.append({
+        'id': uid,
+        'name': name,
+        'path': tpl_path,
+        'bindings': [],
+        'excel_name': '',
+        'updated_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+    })
+    _save_templates_json(items)
+    return jsonify({
+        'ok': True,
+        'id': uid,
+        'name': name,
+        'url': f'/api/oo/template/{uid}',
+    })
+
+
+@app.route('/api/upload_template_replace', methods=['POST'])
+def upload_template_replace():
+    """
+    修改模板时替换当前 Word 文件：不新建模板清单条目，只更新原条目的 path。
+    请求: file + replace_id
+    返回: {ok, id, name, url}
+    """
+    f = request.files.get('file')
+    if not f:
+        return jsonify({'error': '未收到文件'}), 400
+    if not f.filename.lower().endswith('.docx'):
+        return jsonify({'error': '仅支持 .docx 模板文件'}), 400
+    replace_id = request.form.get('replace_id')
+    if not replace_id:
+        return jsonify({'error': '缺少 replace_id'}), 400
+
+    items = _load_templates_json()
+    target = next((t for t in items if t.get('id') == replace_id), None)
+    if not target:
+        return jsonify({'error': '模板不存在'}), 404
+
+    name = target.get('name') or os.path.splitext(f.filename or '')[0]
+    safe_name = re.sub(r'[\\/:*?"<>|]', '_', name)
+    new_uid = uuid.uuid4().hex[:8]
+    new_path = os.path.join(TEMPLATES_DIR, f'{new_uid}_{safe_name}.docx')
+    try:
+        f.save(new_path)
+    except Exception as e:
+        return jsonify({'error': '保存失败: ' + str(e)}), 500
+
+    old_path = target.get('path')
+    target['path'] = new_path
+    target['updated_at'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    _save_templates_json(items)
+
+    # 删除旧 docx（容错）
+    try:
+        if old_path and os.path.exists(old_path) and old_path != new_path:
+            os.remove(old_path)
+    except Exception:
+        pass
+
+    return jsonify({
+        'ok': True,
+        'id': replace_id,
+        'name': name,
+        'url': f'/api/oo/template/{replace_id}',
+    })
+
+
+@app.route('/api/batch_render', methods=['POST'])
+def batch_render():
+    """
+    批量制函：选模板 + 上传已匹配的 Excel → 逐个按绑定规则注入表格 → 按函证编号命名 → 打包 zip。
+    只制函前端传入的可制函项（✓ 自动匹配 与 ✎ 补到并匹配上的）；✗ 无匹配项不传入。
+    请求: form 字段 template_id; file 字段（可多个 excel）; letter_no_map（JSON: {原文件名: 函证编号}）
+    返回: zip 下载 url + 每个文件的状态
+    """
+    template_id = request.form.get('template_id')
+    files = request.files.getlist('file')
+    letter_no_map = {}
+    ln_raw = request.form.get('letter_no_map')
+    if ln_raw:
+        try:
+            letter_no_map = json.loads(ln_raw)
+        except Exception:
+            letter_no_map = {}
+
+    if not template_id:
+        return jsonify({'error': '请选择模板'}), 400
+    if not files:
+        return jsonify({'error': '请上传至少一个 Excel'}), 400
+
+    items = _load_templates_json()
+    tpl = next((t for t in items if t.get('id') == template_id), None)
+    if not tpl:
+        return jsonify({'error': '模板不存在'}), 404
+    tpl_path = tpl.get('path')
+    if not os.path.exists(tpl_path):
+        return jsonify({'error': '模板文件不存在: ' + tpl_path}), 404
+
+    uid = uuid.uuid4().hex[:8]
+    batch_dir = os.path.join(OUTPUT_DIR, f'batch_{uid}')
+    os.makedirs(batch_dir, exist_ok=True)
+
+    results = []
+    for f in files:
+        if not f or not f.filename.lower().endswith(('.xlsx', '.xlsm')):
+            results.append({'file': f.filename if f else '?', 'status': 'error', 'msg': '非 Excel 文件，跳过'})
+            continue
+        fname = f.filename
+        # 输出按函证编号命名（与文档一致：输出命名=函证编号，而非 Excel 文件名）
+        letter_no = letter_no_map.get(fname) or _parse_letter_no(fname)
+        xlsx_tmp = os.path.join(UPLOAD_DIR, f'batch_{uuid.uuid4().hex[:8]}.xlsx')
+        f.save(xlsx_tmp)
+        out_path = os.path.join(batch_dir, f'{letter_no}.docx')
+        try:
+            stats = render_by_template(tpl_path, xlsx_tmp, out_path)
+            results.append({
+                'file': fname,
+                'letter_no': letter_no,
+                'status': 'ok',
+                'injected': stats['injected'],
+                'not_found': stats['not_found'],
+                'skipped_empty': stats['skipped_empty'],
+            })
+        except Exception as e:
+            results.append({'file': fname, 'status': 'error', 'msg': str(e)})
+        finally:
+            try:
+                os.remove(xlsx_tmp)
+            except Exception:
+                pass
+
+    # 打包 zip（重名自动加序号）
+    zip_path = os.path.join(OUTPUT_DIR, f'batch_{uid}.zip')
+    import zipfile
+    used = set()
+    with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
+        for fname in os.listdir(batch_dir):
+            if not fname.endswith('.docx'):
+                continue
+            base, ext = os.path.splitext(fname)
+            final_name = fname
+            n = 1
+            while final_name in used:
+                final_name = f'{base}({n}){ext}'
+                n += 1
+            used.add(final_name)
+            zf.write(os.path.join(batch_dir, fname), final_name)
+
+    # 清理临时目录
+    shutil.rmtree(batch_dir, ignore_errors=True)
+
+    return jsonify({
+        'results': results,
+        'zip_url': f'/api/download/{os.path.basename(zip_path)}',
+        'count': len([r for r in results if r['status'] == 'ok']),
+    })
+
+
+@app.route('/api/quick_render', methods=['POST'])
+def quick_render():
+    """
+    快速导入制函：一步到位（导入 Word 模板 + 导入 Excel + 选 Sheet 位置 → 直接制函）。
+    请求 form：
+        word: 用户 Word 模板 .docx
+        excel: 一个 Excel .xlsx（文件名含函证编号 或 前端传 letter_no）
+        bindings: JSON 字符串，[{pos_index, sheet_name}] 用户选择的 Sheet 与位置
+        letter_no: 可选，函证编号（默认从 Excel 文件名解析）
+    流程：保存 word → annotate_bindings 写入占位符 → 扫描提取绑定 → render_by_template 注入 → 返回 docx 下载
+    """
+    word = request.files.get('word')
+    excel = request.files.get('excel')
+    bindings_raw = request.form.get('bindings') or '[]'
+    letter_no = (request.form.get('letter_no') or '').strip()
+
+    if not word or not word.filename.lower().endswith('.docx'):
+        return jsonify({'error': '请上传 Word 模板（.docx）'}), 400
+    if not excel or not excel.filename.lower().endswith(('.xlsx', '.xlsm')):
+        return jsonify({'error': '请上传 Excel（.xlsx）'}), 400
+
+    try:
+        bindings = json.loads(bindings_raw)
+    except Exception:
+        bindings = []
+    if not isinstance(bindings, list) or len(bindings) == 0:
+        return jsonify({'error': '请至少选择一个 Sheet 位置'}), 400
+
+    uid = uuid.uuid4().hex[:8]
+    word_path = os.path.join(UPLOAD_DIR, f'quick_{uid}_tpl.docx')
+    excel_path = os.path.join(UPLOAD_DIR, f'quick_{uid}.xlsx')
+    try:
+        word.save(word_path)
+        excel.save(excel_path)
+    except Exception as e:
+        return jsonify({'error': '保存上传文件失败: ' + str(e)}), 500
+
+    # 解析函证编号
+    if not letter_no:
+        letter_no = _parse_letter_no(excel.filename)
+
+    # 生成带占位符的临时模板
+    annotated_path = os.path.join(UPLOAD_DIR, f'quick_{uid}_annotated.docx')
+    try:
+        annotate_bindings(word_path, bindings, annotated_path)
+        doc = Document(annotated_path)
+        placeholders = extract_placeholders(doc)
+        tpl_bindings = [{'sheet_name': ph['sheet_name'], 'para_index': ph['para_index']} for ph in placeholders]
+    except Exception as e:
+        return jsonify({'error': '模板处理失败: ' + str(e)}), 400
+
+    # 渲染制函
+    out_path = os.path.join(OUTPUT_DIR, f'quick_{uid}_{letter_no}.docx')
+    try:
+        stats = render_by_template(annotated_path, excel_path, out_path)
+    except Exception as e:
+        return jsonify({'error': '制函失败: ' + str(e)}), 400
+    finally:
+        # 清理临时文件
+        for p in (word_path, excel_path, annotated_path):
+            try:
+                if os.path.exists(p):
+                    os.remove(p)
+            except Exception:
+                pass
+
+    dl_name = f'{letter_no}.docx'
+    return jsonify({
+        'ok': True,
+        'letter_no': letter_no,
+        'docx_url': f'/api/download/{os.path.basename(out_path)}?name={dl_name}',
+        'bindings': tpl_bindings,
+        'injected': stats.get('injected', []),
+        'not_found': stats.get('not_found', []),
+        'skipped_empty': stats.get('skipped_empty', []),
+    })
 
 
 # ============ OnlyOffice 文档下载接口（hanzheng 模式：docUrl 指向后端 API）============

@@ -362,3 +362,101 @@ def _remove_paragraph_at(doc, para_idx):
     if 0 <= para_idx < len(paras):
         p_el = paras[para_idx]._p
         p_el.getparent().remove(p_el)
+
+
+# ============================================================
+# 批量制函模板化：占位符扫描 + 按模板渲染（2026-08-24 新增）
+# 占位符格式：【Sheet「xxx」表格将在此处展示】
+# ============================================================
+
+def extract_placeholders(doc):
+    """
+    扫描模板文档中所有占位符，返回 [{para_index, sheet_name}]。
+    占位符格式：【Sheet「xxx」表格将在此处展示】
+    """
+    result = []
+    for i, p in enumerate(doc.paragraphs):
+        text = p.text.strip()
+        if _PLACEHOLDER_PREFIX in text and '」' in text and '表格将在此处展示' in text:
+            start = text.find('「')
+            end = text.find('」')
+            if start >= 0 and end > start:
+                result.append({
+                    'para_index': i,
+                    'sheet_name': text[start + 1:end],
+                    'text': text,
+                })
+    return result
+
+
+def _find_next_placeholder(doc):
+    """
+    找到第一个占位符段落（每次调用后段落索引会变化，故循环重扫）。
+    返回 (para_index, sheet_name) 或 (None, None)。
+    """
+    for i, p in enumerate(doc.paragraphs):
+        text = p.text.strip()
+        if _PLACEHOLDER_PREFIX in text and '」' in text and '表格将在此处展示' in text:
+            start = text.find('「')
+            end = text.find('」')
+            if start >= 0 and end > start:
+                return i, text[start + 1:end]
+    return None, None
+
+
+def render_by_template(tpl_path, xlsx_path, out_path):
+    """
+    按模板内置占位符批量制函：扫描模板中所有【Sheet「xxx」表格将在此处展示】占位符，
+    从 Excel 找同名 Sheet，在占位符位置注入真实表格并删除占位符段落。
+
+    规则：
+    - 找到 Sheet 且非空 → 注入表格（列数=Sheet列数、表头=第一行、总宽锁定文本宽）
+    - 缺 Sheet / 空 Sheet → 删除占位符段落（该位置留空），不中断
+    - 同一占位符可重复出现（一个 Sheet 放多个位置）
+
+    返回：统计信息 dict
+    """
+    doc = Document(tpl_path)
+    text_width = get_text_width(doc)
+
+    sheets = read_excel_sheets(xlsx_path)
+    sheet_map = {s['name']: s for s in sheets}
+
+    stats = {
+        'template_para_count': len(doc.paragraphs),
+        'template_table_count': len(doc.tables),
+        'text_width_inch': round(text_width / 914400, 2),
+        'placeholders': extract_placeholders(doc),
+        'sheets': sheets,
+        'injected': [],
+        'skipped_empty': [],
+        'not_found': [],
+    }
+
+    # 反复扫描占位符（注入表格+删除段落后索引变化，重新扫描）
+    while True:
+        ph_idx, ph_sheet = _find_next_placeholder(doc)
+        if ph_idx is None:
+            break
+        if ph_sheet not in sheet_map:
+            stats['not_found'].append(ph_sheet)
+            _remove_paragraph_at(doc, ph_idx)  # 缺 sheet → 留空
+            continue
+        sheet = sheet_map[ph_sheet]
+        if not sheet['rows']:
+            stats['skipped_empty'].append(ph_sheet)
+            _remove_paragraph_at(doc, ph_idx)  # 空 sheet → 留空
+            continue
+        # 注入表格到占位符段落后
+        inject_sheet_table(doc, sheet, anchor_mode='after_para', anchor_idx=ph_idx)
+        # 删除占位符段落
+        _remove_paragraph_at(doc, ph_idx)
+        stats['injected'].append({
+            'sheet': ph_sheet,
+            'cols': len(sheet['header']),
+            'rows': len(sheet['rows']) + 1,
+        })
+
+    doc.save(out_path)
+    stats['output_table_count'] = len(Document(out_path).tables)
+    return stats

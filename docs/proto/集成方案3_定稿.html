@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>集成方案3 - 定稿</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; font-family:"Microsoft YaHei","PingFang SC",sans-serif; }
+  body { background:#f5f6fa; }
+
+  .header { background:#fff; border-bottom:1px solid #e6e8f0; padding:0 24px; }
+  .header-top { display:flex; align-items:center; height:48px; justify-content:space-between; color:#5a6072; font-size:12px; }
+  .tabs { display:flex; gap:2px; background:#f0f2f9; padding:0 4px; }
+  .tab { padding:14px 18px; font-size:14px; color:#5a6072; cursor:pointer; }
+  .tab.active { background:#fff; color:#6083F0; font-weight:bold; border-bottom:2px solid #6083F0; }
+
+  .container { padding:14px 22px; background:#fff; }
+  h1 { font-size:18px; color:#6083F0; margin-bottom:10px; }
+
+  .btn-row { display:flex; gap:12px; align-items:center; padding:20px 0 14px; flex-wrap:wrap; }
+
+  .btn { background:#f0f2f9; color:#5a6072; border:1px solid #d4d8e4; padding:9px 14px; border-radius:5px; font-size:13px; cursor:pointer; display:inline-flex; align-items:center; gap:6px; }
+  .btn .arrow { font-size:10px; }
+  .btn.bold { background:#d6e2ff; color:#6083F0; border-color:#b0c8f5; font-weight:bold; }
+
+  .dd-wrap { position:relative; display:inline-block; }
+  .dd { position:absolute; top:110%; left:0; background:#fff; border:1px solid #d4d8e4; border-radius:6px; box-shadow:0 6px 20px rgba(31,45,90,.12); min-width:200px; z-index:10; padding:6px 0; }
+  .dd-item { padding:11px 16px; font-size:13px; color:#3a4050; cursor:pointer; display:flex; align-items:center; gap:8px; }
+  .dd-item:hover { background:#f4f6fb; }
+  .dd-item .ic { font-size:15px; }
+  .dd-sep { height:1px; background:#eef0f6; margin:5px 0; }
+
+  .sep { width:1px; height:26px; background:#d4d8e4; margin:0 4px; }
+
+  table { width:100%; background:#fff; border-collapse:collapse; margin-top:12px; }
+  th { background:#f0f2f9; color:#5a6072; font-size:12px; text-align:left; padding:10px 12px; }
+  td { padding:11px 12px; font-size:13px; color:#2a2f3e; border-top:1px solid #eef0f6; }
+  .op { color:#6083F0; cursor:pointer; margin-right:10px; font-size:12px; }
+  .op.del { color:#d63031; }
+
+  .note { margin-top:20px; background:#f4f7ff; border-left:3px solid #6083F0; padding:12px 16px; border-radius:4px; font-size:13px; color:#5a6072; line-height:1.8; }
+  .note b { color:#6083F0; }
+  .note .num { display:inline-block; background:#6083F0; color:#fff; width:18px; height:18px; border-radius:50%; text-align:center; line-height:18px; font-size:12px; margin-right:6px; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-top"><span>函证管理</span><span>往来函证 0813</span></div>
+  <div class="tabs">
+    <div class="tab">控制表数据维护</div>
+    <div class="tab active">函证管理</div>
+    <div class="tab">发函管理</div>
+    <div class="tab">发函记录</div>
+    <div class="tab">回调管理</div>
+    <div class="tab">回函过程检查</div>
+    <div class="tab">已确认结果函证</div>
+    <div class="tab">函证文件</div>
+  </div>
+</div>
+
+<div class="container">
+  <h1>函证管理</h1>
+
+  <!-- ★ 按钮区定稿：新制函往前放 -->
+  <div class="btn-row">
+    <button class="btn bold">批量上传原始函证</button>
+
+    <!-- 新制函（往前放） -->
+    <div class="dd-wrap">
+      <button class="btn">Excel制函 ▾</button>
+      <div class="dd">
+        <div class="dd-item"><span class="ic">📥</span> 批量制函（Excel）</div>
+        <div class="dd-sep"></div>
+        <div class="dd-item"><span class="ic">🧩</span> 模板配置</div>
+      </div>
+    </div>
+
+    <!-- 老制函（合并改名，放在新制函后面） -->
+    <div class="dd-wrap">
+      <button class="btn">标准科目函证制函 ▾</button>
+      <div class="dd">
+        <div class="dd-item"><span class="ic">📄</span> PDF格式制函</div>
+        <div class="dd-item"><span class="ic">🛠️</span> 修改制函模板</div>
+      </div>
+    </div>
+
+    <button class="btn">批量合并下载</button>
+    <button class="btn">数据修改日志</button>
+  </div>
+
+  <table>
+    <thead><tr><th>序号</th><th>函证编号</th><th>客户名称</th><th>被询证单位</th><th>被询证单位地址</th><th>被询证单位联系人</th><th>被询证单位电话</th><th>操作</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td>wlfz002001</td><td>顶点软件</td><td>中信证券股份有限公司</td><td>广东省深圳市福田区中心...</td><td>王武</td><td>13800000000</td>
+        <td><span class="op">上传原始函证</span><span class="op">上传附表</span><span class="op">下载标记函证</span><span class="op">修改函证数据</span><span class="op del">废弃</span></td></tr>
+      <tr><td>2</td><td>wlfz002002</td><td>顶点软件</td><td>国泰君安证券股份有限公司</td><td>中国（上海）自由贸易试...</td><td>李明</td><td>13800000001</td>
+        <td><span class="op">上传原始函证</span><span class="op">上传附表</span><span class="op">下载标记函证</span><span class="op">修改函证数据</span><span class="op del">废弃</span></td></tr>
+      <tr><td>3</td><td>wlfz002003</td><td>顶点软件</td><td>华泰证券股份有限公司</td><td>江苏省南京市江东中路22...</td><td>张伟</td><td>13800000002</td>
+        <td><span class="op">上传原始函证</span><span class="op">上传附表</span><span class="op">下载标记函证</span><span class="op">修改函证数据</span><span class="op del">废弃</span></td></tr>
+    </tbody>
+  </table>
+
+  <div class="note">
+    <div><span class="num">1</span><b>Excel制函 ▾</b>（新制函，放在原制函按钮前面）：<b>批量制函（Excel）</b> / <b>模板配置</b></div>
+    <div style="margin-top:8px;"><span class="num">2</span><b>标准科目函证制函 ▾</b>（老制函合并改名）：<b>PDF格式制函</b> / <b>修改制函模板</b></div>
+    <div style="margin-top:8px;"><span class="num">3</span>两个按钮样式一致，<b>不特殊突出</b>新功能；均用普通下拉按钮。</div>
+  </div>
+</div>
+
+</body>
+</html>

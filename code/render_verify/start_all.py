@@ -77,15 +77,7 @@ def main():
     print("    OnlyOffice 演示: http://127.0.0.1:5002/demo")
     print("    渲染验证首页  : http://127.0.0.1:5002/")
     print()
-    print("  服务运行中，按 Ctrl+C 停止所有服务")
-    try:
-        while True:
-            time.sleep(1)
-    except KeyboardInterrupt:
-        print("\n停止所有服务...")
-        for p in RUNNING:
-            p.terminate()
-        print("已停止")
+    print("  服务已在后台运行，本脚本正常退出（不影响服务）")
 
 if __name__ == '__main__':
     main()

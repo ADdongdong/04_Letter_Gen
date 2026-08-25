@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Excel制函 · 单页批量制函（选模板 + 上传匹配同页，示意）</title>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: "Microsoft YaHei", Arial, sans-serif; background: #f5f7fa; color: #333; margin: 0; }
+  .primary { color: #6083F0; }
+
+  .wizard { max-width: 960px; margin: 24px auto; background: #fff; border-radius: 10px; box-shadow: 0 2px 12px rgba(0,0,0,.06); overflow: hidden; }
+  .dialog-title { display: flex; align-items: center; justify-content: space-between; padding: 16px 24px; border-bottom: 1px solid #eef0f5; }
+  .dialog-title h1 { font-size: 16px; margin: 0; }
+  .dialog-title .close { color: #999; cursor: pointer; font-size: 20px; line-height: 1; }
+
+  .body { padding: 18px 24px 24px; }
+
+  /* 顶部：选模板区 */
+  .tpl-bar { padding: 0 0 6px; }
+  .tpl-bar .field { flex: 1; }
+  .tpl-bar label { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: bold; margin: 0 0 10px; }
+  .tpl-bar label::before { content: ""; width: 3px; height: 14px; background: #6083F0; border-radius: 2px; }
+  .tpl-bar select { width: 100%; padding: 8px; border: 1px solid #d0d5e0; border-radius: 5px; font-size: 13px; }
+
+  /* 分区标题 */
+  .sec-title { font-size: 14px; font-weight: bold; margin: 22px 0 10px; display: flex; align-items: center; gap: 8px; }
+  .sec-title::before { content: ""; width: 3px; height: 14px; background: #6083F0; border-radius: 2px; }
+
+  /* 上传区 */
+  .upload { border: 2px dashed #c3ccdf; border-radius: 8px; padding: 20px; text-align: center; background: #fbfcff; transition: .15s; }
+  .upload:hover { border-color: #6083F0; background: #f4f7ff; }
+  .upload .big { font-size: 14px; color: #6083F0; font-weight: bold; cursor: pointer; }
+  .upload .small { font-size: 12px; color: #999; margin-top: 6px; }
+
+  /* 汇总条 */
+  .summary { display: flex; gap: 18px; margin: 16px 0 10px; font-size: 13px; }
+  .summary .item b { font-size: 16px; }
+  .summary .ok b { color: #2e7d32; }
+  .summary .pend b { color: #e08a00; }
+  .summary .fail b { color: #c0392b; }
+
+  /* 提示条（非阻断） */
+  .alert { background: #fff7e6; border: 1px solid #ffd591; color: #ad6800; border-radius: 6px; padding: 10px 12px; font-size: 13px; margin: 8px 0 14px; display: flex; align-items: center; gap: 8px; }
+
+  /* 台账列表 */
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid #eef0f5; }
+  th { background: #f7f9ff; color: #666; font-weight: 600; }
+  tr.row-pend { background: #fffdf5; }
+  tr.row-fail { background: #fdf3f2; }
+
+  .tag { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 12px; font-weight: 600; }
+  .tag.ok { background: #e8f5e9; color: #2e7d32; }
+  .tag.pend { background: #fff3e0; color: #e08a00; }
+  .tag.fail { background: #fdecea; color: #c0392b; }
+
+  .code { font-family: Consolas, monospace; color: #444; }
+  .muted { color: #aaa; }
+
+  /* 手动补编号输入框 */
+  .match-cell { display: flex; gap: 6px; align-items: center; }
+  .match-cell input { padding: 5px 8px; border: 1px solid #d0d5e0; border-radius: 5px; font-size: 13px; width: 150px; }
+  .btn { border: none; border-radius: 5px; padding: 6px 12px; font-size: 13px; cursor: pointer; }
+  .btn.sm { padding: 5px 10px; font-size: 12px; }
+  .btn.primary { background: #6083F0; color: #fff; }
+  .btn.primary:hover { background: #4f72e0; }
+  .btn.ghost { background: #fff; color: #6083F0; border: 1px solid #6083F0; }
+  .btn.ghost:hover { background: #f0f4ff; }
+  .btn.danger { background: #fff; color: #c0392b; border: 1px solid #f0c4c0; }
+  .btn.danger:hover { background: #fdecea; }
+
+  /* 底部操作 */
+  .footer { display: flex; align-items: center; justify-content: space-between; padding: 16px 24px; border-top: 1px solid #eef0f5; background: #fafbff; }
+  .footer .left-info { font-size: 13px; color: #666; }
+  .footer .actions { display: flex; gap: 10px; }
+  .btn-start { background: #2e7d32; color: #fff; padding: 10px 22px; font-size: 14px; font-weight: bold; }
+  .btn-start:hover { background: #256628; }
+</style>
+</head>
+<body>
+  <div class="wizard">
+    <div class="dialog-title">
+      <h1>Excel 批量制函</h1>
+      <span class="close">×</span>
+    </div>
+
+    <div class="body">
+      <!-- 顶部：选模板（同页） -->
+      <div class="tpl-bar">
+        <div class="field">
+          <label>① 选择函证模板</label>
+          <select>
+            <option>标准科目函证模板 v2</option>
+            <option>银行询证函模板</option>
+            <option>往来款询证函模板</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- 下方：上传 + 匹配台账 -->
+      <div class="sec-title">② 上传 Excel 并匹配函证台账</div>
+      <p class="upload small" style="text-align:left;margin:0 0 12px;color:#999;border:none;background:none;padding:0">
+        文件名 = 函证编号（可带描述），如 <span class="code">wlfz002001.xlsx</span> 或 <span class="code">wlfz002001_中信证券.xlsx</span>。系统取首个 <span class="code">_</span> 前段作为函证编号去台账匹配。
+      </p>
+
+      <div class="upload">
+        <div class="big">＋ 点击或拖拽上传多个 .xlsx</div>
+        <div class="small">支持多选；所有文件都会列入下方台账列表，匹配不上也不会被丢弃</div>
+      </div>
+
+      <!-- 汇总条 -->
+      <div class="summary">
+        <div class="item">共上传 <b>4</b> 个</div>
+        <div class="item ok">✓ 已匹配 <b>2</b></div>
+        <div class="item pend">✎ 待补编号 <b>1</b></div>
+        <div class="item fail">✗ 无匹配 <b>1</b></div>
+      </div>
+
+      <!-- 非阻断提示 -->
+      <div class="alert">⚠️ 有 1 个未匹配（已置灰不参与制函），可手动补填函证编号救回，或删除该行。</div>
+
+      <!-- 台账列表 -->
+      <table>
+        <thead>
+          <tr>
+            <th style="width:22%">文件</th>
+            <th style="width:16%">函证编号</th>
+            <th style="width:16%">客户名称</th>
+            <th style="width:14%">被询证单位</th>
+            <th style="width:12%">状态</th>
+            <th style="width:20%">操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          <!-- ✓ 自动匹配 -->
+          <tr>
+            <td class="code">wlfz002001_中信证券.xlsx</td>
+            <td class="code">wlfz002001</td>
+            <td>中信证券股份有限公司</td>
+            <td>中信证券</td>
+            <td><span class="tag ok">✓ 自动匹配</span></td>
+            <td><button class="btn danger sm">删除</button></td>
+          </tr>
+          <tr>
+            <td class="code">wlfz002007.xlsx</td>
+            <td class="code">wlfz002007</td>
+            <td>国泰君安资管</td>
+            <td>国泰君安</td>
+            <td><span class="tag ok">✓ 自动匹配</span></td>
+            <td><button class="btn danger sm">删除</button></td>
+          </tr>
+          <!-- ✎ 待补编号（带输入框） -->
+          <tr class="row-pend">
+            <td class="code">对账函_2026Q2.xlsx</td>
+            <td colspan="3">
+              <div class="match-cell">
+                <input value="" placeholder="手动输入函证编号" />
+                <button class="btn ghost sm">匹配</button>
+              </div>
+            </td>
+            <td><span class="tag pend">✎ 待补编号</span></td>
+            <td><button class="btn danger sm">删除</button></td>
+          </tr>
+          <!-- ✗ 补后仍无（灰掉） -->
+          <tr class="row-fail">
+            <td class="code">wlfz009999_测试.xlsx</td>
+            <td class="code muted">wlfz009999</td>
+            <td class="muted" colspan="2">（台账无此编号）</td>
+            <td><span class="tag fail">✗ 无匹配</span></td>
+            <td><button class="btn danger sm">删除</button></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- 底部操作 -->
+    <div class="footer">
+      <div class="left-info">可制函 <b class="primary">3</b> 份（✓ 2 + 补到的 1）；✗ 不计入</div>
+      <div class="actions">
+        <button class="btn ghost">取消</button>
+        <button class="btn-start">🚀 开始制函（3）</button>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

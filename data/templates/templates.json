@@ -1,0 +1,55 @@
+[
+  {
+    "id": "0d56441b",
+    "name": "往来函证模板（销售、采购）",
+    "path": "E:\\13_dingdian\\03_demo\\04_Letter_Gen\\code\\render_verify\\..\\..\\data\\templates\\0d56441b_往来函证模板（销售、采购）.docx",
+    "bindings": [],
+    "excel_name": "",
+    "updated_at": "2026-08-25 14:27:49"
+  },
+  {
+    "id": "7abad1d2",
+    "name": "往来函模板",
+    "path": "E:\\13_dingdian\\03_demo\\04_Letter_Gen\\code\\render_verify\\..\\..\\data\\templates\\08eb53e8_往来函模板.docx",
+    "bindings": [
+      {
+        "sheet_name": "科目余额分录",
+        "para_index": 35
+      },
+      {
+        "sheet_name": "科目余额分录",
+        "para_index": 36
+      },
+      {
+        "sheet_name": "科目余额分录",
+        "para_index": 37
+      },
+      {
+        "sheet_name": "非标事项分录",
+        "para_index": 40
+      },
+      {
+        "sheet_name": "非标事项分录",
+        "para_index": 41
+      },
+      {
+        "sheet_name": "票据事项分录",
+        "para_index": 42
+      },
+      {
+        "sheet_name": "科目余额分录",
+        "para_index": 43
+      },
+      {
+        "sheet_name": "票据事项分录",
+        "para_index": 44
+      },
+      {
+        "sheet_name": "非标事项分录",
+        "para_index": 46
+      }
+    ],
+    "excel_name": "往来非标询证函-数据导入模版.xlsx",
+    "updated_at": "2026-08-25 17:30:39"
+  }
+]
