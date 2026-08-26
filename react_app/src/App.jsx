@@ -14,8 +14,13 @@ export default function App() {
   const statusRef = useRef('加载中...');
 
   // ---- 插入文本的核心方法（由 RightPanel 调用）----
+  // 优先走 Click2Insert 插件（OO 8.x 官方方式，Hanzheng 同款），fallback 到旧的内部 insertText
   const insertText = useCallback((text) => {
     if (!editorRef.current) return false;
+    if (typeof editorRef.current.insertTextViaPlugin === 'function') {
+      const ok = editorRef.current.insertTextViaPlugin(text);
+      if (ok) return true;
+    }
     return editorRef.current.insertText(text);
   }, []);
 

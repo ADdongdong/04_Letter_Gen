@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head><meta charset="utf-8">
+<title>OO 8.2 insertText 探测 v3</title></head>
+<body>
+<div id="status">INIT</div>
+<pre id="result">-</pre>
+<div id="placeholder"></div>
+<script>
+window.__errs = [];
+window.__console = [];
+window.__net = [];
+window.onerror = function (msg, src, line, col, err) {
+  window.__errs.push('onerror: ' + msg + ' @' + src + ':' + line);
+};
+window.addEventListener('unhandledrejection', function (e) {
+  window.__errs.push('unhandledrejection: ' + (e.reason && (e.reason.message || e.reason) || e.reason));
+});
+(function () {
+  var origFetch = window.fetch;
+  if (origFetch) {
+    window.fetch = function () {
+      try { window.__net.push('fetch: ' + arguments[0]); } catch (e) {}
+      return origFetch.apply(this, arguments);
+    };
+  }
+  var origOpen = XMLHttpRequest.prototype.open;
+  XMLHttpRequest.prototype.open = function (method, url) {
+    try { window.__net.push('xhr: ' + method + ' ' + url); } catch (e) {}
+    return origOpen.apply(this, arguments);
+  };
+})();
+window.console = {
+  log: function () { window.__console.push('L:' + Array.prototype.map.call(arguments, function (x) { return typeof x === 'string' ? x : JSON.stringify(x); }).join(' ')); },
+  warn: function () { window.__console.push('W:' + Array.prototype.map.call(arguments, function (x) { return typeof x === 'string' ? x : JSON.stringify(x); }).join(' ')); },
+  error: function () { window.__console.push('E:' + Array.prototype.map.call(arguments, function (x) { return typeof x === 'string' ? x : JSON.stringify(x); }).join(' ')); },
+  info: function () { window.__console.push('I:' + Array.prototype.map.call(arguments, function (x) { return typeof x === 'string' ? x : JSON.stringify(x); }).join(' ')); }
+};
+</script>
+<script src="/onlyoffice/web-apps/apps/api/documents/api.js"></script>
+<script>
+const statusEl = document.getElementById('status');
+const resultEl = document.getElementById('result');
+statusEl.textContent = 'api loaded, DocEditor=' + (typeof (window.DocsAPI && DocsAPI.DocEditor));
+
+let editorCreated = false;
+let appReady = false, docReady = false;
+try {
+  const docEditor = new DocsAPI.DocEditor('placeholder', {
+    document: {
+      fileType: 'docx',
+      key: 'probe-8-2-' + Date.now(),
+      title: 'probe.docx',
+      url: 'http://host.docker.internal:5002/api/oo/getTemplate'
+    },
+    documentType: 'word',
+    documentServerUrl: 'http://127.0.0.1:5173/onlyoffice',
+    editorConfig: { mode: 'edit', lang: 'zh-CN' },
+    events: {
+      onAppReady: () => { appReady = true; },
+      onDocumentReady: () => { docReady = true; },
+      onError: (e) => { window.__errs.push('onError: ' + JSON.stringify(e)); }
+    }
+  });
+  editorCreated = true;
+  window.__editor = docEditor;
+  // 立即同步注入 frameEditor（在 socket.io 连接前）
+  function tryInjectFE() {
+    var ph = document.getElementById('placeholder');
+    if (!ph) return false;
+    var fe = ph.querySelector('iframe');
+    if (!fe) return false;
+    try { injectHooks(fe.contentWindow, 'top > frameEditor'); } catch (e) {}
+    if (!fe.__loadHooked) {
+      fe.__loadHooked = true;
+      fe.addEventListener('load', function () { try { injectHooks(fe.contentWindow, 'top > frameEditor'); } catch (e) {} });
+    }
+    return true;
+  }
+  if (!tryInjectFE()) {
+    var ph2 = document.getElementById('placeholder');
+    if (ph2) {
+      var obs = new MutationObserver(function () { if (tryInjectFE()) obs.disconnect(); });
+      obs.observe(ph2, { childList: true, subtree: true });
+    }
+  }
+} catch (e) {
+  window.__errs.push('create-error: ' + (e.stack || e.message));
+}
+
+function injectHooks(win, prefix) {
+  if (!win || win.__injected) return;
+  try { win.__injected = true; } catch (e) { return; }
+  try {
+    var of = win.fetch;
+    if (of) {
+      win.fetch = function () { try { window.__net.push(prefix + ' fetch:' + arguments[0]); } catch (e) {} return of.apply(this, arguments); };
+    }
+  } catch (e) {}
+  try {
+    var OWS = win.WebSocket;
+    if (OWS) {
+      function WS(url, p) { try { window.__net.push(prefix + ' WS:' + url); } catch (e) {} return new OWS(url, p); }
+      WS.prototype = OWS.prototype;
+      win.WebSocket = WS;
+    }
+  } catch (e) {}
+  try {
+    var OX = win.XMLHttpRequest;
+    if (OX && OX.prototype) {
+      var oo = OX.prototype.open;
+      OX.prototype.open = function (m, u) { try { window.__net.push(prefix + ' xhr:' + m + ' ' + u); } catch (e) {} return oo.apply(this, arguments); };
+    }
+  } catch (e) {}
+}
+function walkInject(win, path, depth) {
+  if (depth > 6) return;
+  injectHooks(win, path);
+  try {
+    var ifs = win.document.querySelectorAll('iframe');
+    for (var i = 0; i < ifs.length; i++) {
+      try { if (ifs[i].contentWindow) walkInject(ifs[i].contentWindow, path + ' > ' + (ifs[i].id || ifs[i].name), depth + 1); } catch (e) {}
+    }
+  } catch (e) {}
+}
+
+function probe() {
+  walkInject(window, 'top', 0);
+  const report = { frames: 0, results: [], errs: window.__errs.slice(), console: window.__console.slice(-30), net: window.__net.slice(-60), created: editorCreated, appReady, docReady };
+  function walk(win, path, depth) {
+    if (depth > 8) return;
+    try {
+      const doc = win.document;
+      const iframes = doc.querySelectorAll('iframe');
+      for (let i = 0; i < iframes.length; i++) {
+        const f = iframes[i];
+        const name = f.id || f.name || ('iframe' + i);
+        const full = path + ' > ' + name;
+        report.frames++;
+        try {
+          const cw = f.contentWindow;
+          const hasInsertText = typeof cw.insertText === 'function';
+          let related = [];
+          try { related = Object.keys(cw).filter(k => /insert|search|paste|replace|asc|doc|exec/i.test(k)).slice(0, 25); } catch (e) {}
+          let allKeys = [];
+          try { allKeys = Object.keys(cw).slice(0, 80); } catch (e) {}
+          const entry = { frame: full, hasInsertText, related, allKeys };
+          try {
+            entry.hasAsc = typeof cw.Asc;
+            entry.hasAscCommon = typeof cw.AscCommon;
+            entry.hasAscEditor = typeof cw.AscEditor;
+            entry.hasCommon = typeof cw.Common;
+            entry.hasAscPlugin = !!(cw.Asc && cw.Asc.plugin);
+            if (cw.AscCommon) { try { entry.ascCommonKeys = Object.keys(cw.AscCommon).slice(0, 30); } catch (e) {} }
+            if (cw.Asc) { try { entry.ascKeys = Object.keys(cw.Asc).slice(0, 30); } catch (e) {} }
+            if (cw.AscEditor) { try { entry.ascEditorKeys = Object.keys(cw.AscEditor).slice(0, 30); } catch (e) {} }
+          } catch (e) {}
+          try { entry.href = cw.location.href.slice(0, 120); } catch (e) {}
+          try { entry.innerFrames = cw.document.querySelectorAll('iframe').length; } catch (e) {}
+          report.results.push(entry);
+          if (cw && cw.document) walk(cw, full, depth + 1);
+        } catch (e) {
+          report.results.push({ frame: full, error: e.message });
+        }
+      }
+    } catch (e) {
+      report.results.push({ path, fatal: e.message });
+    }
+  }
+  walk(window, 'top', 0);
+  const ph = document.getElementById('placeholder');
+  report.placeholderChildren = ph ? ph.childElementCount : -1;
+  report.ts = Date.now();
+  window.__lastProbe = report;
+  window.__probe = probe;
+  resultEl.textContent = JSON.stringify(report, null, 2);
+  statusEl.textContent += ' | probed@' + Date.now();
+  try {
+    fetch('/api/probe', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(report) }).catch(function () {});
+  } catch (e) {}
+}
+
+let count = 0;
+const timer = setInterval(() => {
+  count++;
+  probe();
+  if (count >= 30) clearInterval(timer);
+}, 2000);
+</script>
+</body>
+</html>

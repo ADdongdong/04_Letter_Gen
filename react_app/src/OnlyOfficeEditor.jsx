@@ -48,6 +48,28 @@ const OnlyOfficeEditor = memo(forwardRef(({ docUrl, onReady }, ref) => {
     return result;
   };
 
+  // 查找 Click2Insert 插件 iframe（部署在 /sdkjs-plugins/click2insert/）
+  // 通过递归遍历所有 iframe，匹配 src 含 'click2insert' 的插件窗口
+  const findPluginIframe = () => {
+    let found = null;
+    const visit = (win, depth) => {
+      if (depth > 8 || found) return;
+      try {
+        const ifs = win.document.querySelectorAll('iframe');
+        for (let i = 0; i < ifs.length; i++) {
+          const f = ifs[i];
+          if (f.src && f.src.indexOf('click2insert') !== -1) {
+            found = f;
+            return;
+          }
+          try { if (f.contentWindow) visit(f.contentWindow, depth + 1); } catch (e) {}
+        }
+      } catch (e) {}
+    };
+    visit(window, 0);
+    return found;
+  };
+
   useImperativeHandle(ref, () => ({
     insertText: (value) => {
       if (!value) return false;
@@ -117,6 +139,30 @@ const OnlyOfficeEditor = memo(forwardRef(({ docUrl, onReady }, ref) => {
       } catch (e) {}
 
       return false;
+    },
+    // 通过 Click2Insert 插件在光标处插入（8.x 推荐方式：Asc.plugin.callCommand + InsertContent([para], true)）
+    insertTextViaPlugin: (value) => {
+      if (!value) return false;
+      const iframe = findPluginIframe();
+      if (!iframe) {
+        console.warn('[OO] insertTextViaPlugin: 找不到 click2insert 插件 iframe（请确认插件已部署到 OO 容器 sdkjs-plugins/click2insert/）');
+        return false;
+      }
+      try {
+        const win = iframe.contentWindow;
+        if (win && typeof win.insertText === 'function') {
+          win.insertText(value);
+          console.log('[OO] ✅ insertTextViaPlugin 成功');
+          return true;
+        }
+        // 兜底：postMessage（与 Hanzheng connector 一致）
+        win.postMessage({ type: 'insertText', text: value }, '*');
+        console.log('[OO] ✅ insertTextViaPlugin postMessage 已发送');
+        return true;
+      } catch (e) {
+        console.error('[OO] insertTextViaPlugin 异常:', e);
+        return false;
+      }
     },
   }));
 

@@ -1,0 +1,21 @@
+{
+    "name": "Click2Insert",
+    "guid": "asc.{FFE1F437-0C8A-4E30-8BC6-A633C37F3D4B}",
+    "baseUrl": "",
+    "variations": [{
+        "description": "Click2Insert",
+        "url": "index.html",
+        "EditorsSupport": ["word", "cell", "slide"],
+
+        "isSystem": true,
+        "isVisual": false,
+
+        "isModal": false,
+        "isInsideMode": false,
+
+        "initDataType": "none",
+        "initData": "",
+
+        "buttons": []
+    }]
+}

@@ -32,6 +32,16 @@ app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50MB
 
 
+# ============ 临时调试：OO 内部 API 探测结果接收（开发期使用，可删） ============
+@app.route('/api/probe', methods=['POST'])
+def probe_receive():
+    data = request.get_json(silent=True) or {}
+    probe_file = os.path.join(BASE_DIR, 'probe_result.json')
+    with open(probe_file, 'w', encoding='utf-8') as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+    return jsonify({'ok': True})
+
+
 # ============ 页面 ============
 @app.route('/')
 def index():
