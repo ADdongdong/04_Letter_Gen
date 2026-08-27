@@ -1,211 +1,230 @@
-import React, { forwardRef, useImperativeHandle, useRef, memo, useMemo } from 'react';
-import { DocumentEditor } from '@onlyoffice/document-editor-react';
+import React, { forwardRef, useImperativeHandle, useRef, useEffect, memo } from 'react';
 
 /**
- * OnlyOffice 编辑器组件（基于 @onlyoffice/document-editor-react 封装）。
+ * OnlyOffice 编辑器（自管理生命周期，绕过 @onlyoffice/document-editor-react 库）
  *
- * insertText 采用与 HanZheng 项目一致的方式：
- *   找到 OnlyOffice 内部 iframe_asc.* 编辑区，
- *   直接调用其 contentWindow.insertText(text) 在「当前光标处」插入文字。
- *   （OnlyOffice 会记忆上次光标位置，无需用户反复点模板）
+ * 设计原因：
+ *   @onlyoffice/react 组件的 destroyEditor() 是异步的，且内部会操作 onlyoffice-editor div 的 DOM
+ *   （移除 iframe/div），与 React 的卸载/重渲染产生 removeChild 冲突，反复导致白屏。
+ *   这里完全自管：docKeySeed 变化 → await destroyEditor + 手动清空 div + 重新 new DocEditor。
+ *   不经过 React 卸载/重挂，避免 removeChild 冲突。
+ *
+ * insertText 通过 Click2Insert 插件（8.x 官方方式，Hanzheng 同款）：
+ *   找 src 含 'click2insert' 的插件 iframe → 调其 window.insertText(text) / postMessage
  */
-const OnlyOfficeEditor = memo(forwardRef(({ docUrl, docKeySeed, onReady }, ref) => {
-  // 递归查找满足条件的 iframe（兼容嵌套 iframe）
-  const findIframeByCondition = (startNode, condition, depth = 0) => {
-    if (depth > 5) return null;
-    const iframes = startNode.querySelectorAll
-      ? startNode.querySelectorAll('iframe')
-      : startNode.getElementsByTagName('iframe');
-    for (let i = 0; i < iframes.length; i++) {
-      const iframe = iframes[i];
-      if (condition(iframe)) return iframe;
+
+// 加载 OnlyOffice api.js（带去重 + 状态机）
+let apiJsLoading = null;
+const ensureDocsApi = (documentServerUrl) => {
+  if (window.DocsAPI) return Promise.resolve();
+  if (apiJsLoading) return apiJsLoading;
+  apiJsLoading = new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = documentServerUrl.replace(/\/$/, '') + '/web-apps/apps/api/documents/api.js';
+    script.async = true;
+    script.onload = () => { apiJsLoading = null; resolve(); };
+    script.onerror = (e) => { apiJsLoading = null; reject(e); };
+    document.body.appendChild(script);
+  });
+  return apiJsLoading;
+};
+
+const OnlyOfficeEditor = memo(forwardRef(({ docUrl, docKey, onReady }, ref) => {
+  const containerRef = useRef(null);
+  const editorRef = useRef(null);
+  const isUnmountedRef = useRef(false);
+  const docKeyRef = useRef(null);  // 当前 document.key（forceSave 时传给后端 CommandService）
+
+  useEffect(() => {
+    isUnmountedRef.current = false;
+    const container = containerRef.current;
+    const documentServerUrl = (typeof window !== 'undefined' && window.location)
+      ? window.location.origin + '/onlyoffice'
+      : '/onlyoffice';
+
+    let cancelled = false;
+
+    const init = async () => {
       try {
-        const iframeWindow = iframe.contentWindow;
-        if (iframeWindow && iframeWindow.document) {
-          const nested = findIframeByCondition(iframeWindow.document, condition, depth + 1);
-          if (nested) return nested;
+        // 1. 销毁旧实例（await 等 OO SDK 8.2 异步清理完成）
+        if (editorRef.current) {
+          try { await editorRef.current.destroyEditor(); } catch (e) { /* ignore */ }
+          editorRef.current = null;
         }
-      } catch (e) { /* 跨域忽略 */ }
-    }
-    return null;
-  };
-
-  // 找 OnlyOffice 编辑区 iframe
-  // 可能是 iframe_asc.*（内部编辑区）或 frameEditor（外层容器）
-  const findAscIframe = () => {
-    // 先找 iframe_asc.*
-    let result = findIframeByCondition(
-      document,
-      (iframe) => iframe.id && iframe.id.indexOf('iframe_asc.') !== -1
-    );
-    if (result) return result;
-
-    // 兜底：找 frameEditor（OnlyOffice 外层 iframe）
-    result = findIframeByCondition(
-      document,
-      (iframe) => iframe.name === 'frameEditor'
-    );
-    return result;
-  };
-
-  // 查找 Click2Insert 插件 iframe（部署在 /sdkjs-plugins/click2insert/）
-  // 通过递归遍历所有 iframe，匹配 src 含 'click2insert' 的插件窗口
-  const findPluginIframe = () => {
-    let found = null;
-    const visit = (win, depth) => {
-      if (depth > 8 || found) return;
-      try {
-        const ifs = win.document.querySelectorAll('iframe');
-        for (let i = 0; i < ifs.length; i++) {
-          const f = ifs[i];
-          if (f.src && f.src.indexOf('click2insert') !== -1) {
-            found = f;
-            return;
-          }
-          try { if (f.contentWindow) visit(f.contentWindow, depth + 1); } catch (e) {}
+        if (window.DocEditor && window.DocEditor.instances) {
+          window.DocEditor.instances['onlyoffice-editor'] = undefined;
         }
-      } catch (e) {}
+        // 2. 手动清空 div 内的所有节点（destroyEditor 8.2 未必移除 iframe DOM，必须手动清理）
+        if (container) container.innerHTML = '';
+        if (cancelled) return;
+
+        // 3. 加载 api.js
+        await ensureDocsApi(documentServerUrl);
+        if (cancelled) return;
+
+        if (!window.DocsAPI || !window.DocsAPI.DocEditor) {
+          console.error('[OO] DocsAPI.DocEditor 不可用');
+          return;
+        }
+
+        // 4. 创建新编辑器（同一 div id，唯一 document.key 由 App 层生成并传入）
+        const currentDocKey = docKey;
+        docKeyRef.current = currentDocKey;
+        // callbackUrl：OO forcesave 时 POST 当前文档到此（与 getTemplate 同路径，OO 容器经 host.docker.internal 访问）
+        const callbackUrl = docUrl.replace('/api/oo/getTemplate', '/api/oo/callback');
+        const config = {
+          document: {
+            fileType: 'docx',
+            // key 拼接 docKeySeed：上传新模板时切到 v1 → OO 重新下载转换
+            key: currentDocKey,
+            title: '银行询证函模板',
+            url: docUrl,
+          },
+          documentType: 'word',
+          editorConfig: {
+            mode: 'edit',
+            callbackUrl: callbackUrl,
+            customization: {
+              forcesave: true,  // 启用强制保存：用户点保存按钮或前端调 server_forceSave 触发回写后端
+            },
+          },
+          height: '100%',
+          width: '100%',
+          events: {
+            onAppReady: () => { if (!cancelled && onReady) onReady('appReady'); },
+            onDocumentReady: () => { if (!cancelled && onReady) onReady('documentReady'); },
+            onError: (e) => { console.error('[OO] 错误:', e); },
+          },
+        };
+
+        const editor = new window.DocsAPI.DocEditor('onlyoffice-editor', config);
+        editorRef.current = editor;
+        // 注册当前活跃 key（callback 回写校验用；初始加载兜底，上传新模板时 App 会预注册）
+        fetch('/api/oo/active_key', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ key: currentDocKey }),
+        }).catch(() => {});
+        if (window.DocEditor) {
+          if (!window.DocEditor.instances) window.DocEditor.instances = {};
+          window.DocEditor.instances['onlyoffice-editor'] = editor;
+        }
+      } catch (e) {
+        console.error('[OO] 初始化异常:', e);
+      }
     };
-    visit(window, 0);
-    return found;
-  };
 
+    init();
+
+    return () => {
+      cancelled = true;
+      isUnmountedRef.current = true;
+      // 卸载时同步销毁（不 await：React 卸载是同步的，不等异步）
+      if (editorRef.current) {
+        try { editorRef.current.destroyEditor(); } catch (e) {}
+        editorRef.current = null;
+      }
+      if (container) container.innerHTML = '';
+    };
+  }, [docKey, docUrl]);
+
+  // 暴露给父组件的插入文本方法（兼容旧 API）
+  // 优先走 Click2Insert 插件，fallback 到旧内部 API
   useImperativeHandle(ref, () => ({
     insertText: (value) => {
       if (!value) return false;
       console.log('[OO] insertText called:', value.substring(0, 30));
-
-      // === 策略1：HanZheng 方式 — ascWindow.insertText ===
+      // 策略1: 旧内部 API（仅 7.x 可用，8.x 已移除）
       try {
-        const ascIframe = findAscIframe();
-        console.log('[OO] 策略1: findAscIframe=', !!ascIframe, ascIframe?.id);
-        if (ascIframe && ascIframe.contentWindow) {
-          const ascWindow = ascIframe.contentWindow;
-          console.log('[OO] 策略1: has insertText?', typeof ascWindow.insertText);
-          if (typeof ascWindow.insertText === 'function') {
-            ascWindow.insertText(`${value}`);
-            console.log('[OO] ✅ 策略1成功');
+        const frameEditor = document.querySelector('iframe[name=frameEditor]');
+        if (frameEditor) {
+          const win = frameEditor.contentWindow;
+          if (win && typeof win.insertText === 'function') {
+            win.insertText(value);
             return true;
           }
         }
-      } catch (e) { console.warn('[OO] 策略1异常:', e.message); }
-
-      // === 策略2：document.execCommand ===
+      } catch (e) { /* ignore */ }
+      // 策略2: execCommand（兼容性后备）
       try {
-        const ascIframe = findAscIframe();
-        console.log('[OO] 策略2: iframe=', !!ascIframe, ascIframe?.id || ascIframe?.name);
-        if (ascIframe && ascIframe.contentWindow) {
-          const doc = ascIframe.contentDocument || ascIframe.contentWindow.document;
-          console.log('[OO] 策略2: doc=', !!doc, 'execCommand=', !!doc?.execCommand);
-          if (doc && doc.execCommand) {
-            doc.execCommand('insertText', false, value);
-            console.log('[OO] ✅ 策略2成功 (execCommand)');
-            return true;
-          }
+        const frameEditor = document.querySelector('iframe[name=frameEditor]');
+        if (frameEditor && frameEditor.contentDocument) {
+          frameEditor.contentDocument.execCommand('insertText', false, value);
+          return true;
         }
-      } catch (e) { console.warn('[OO] 策略2异常:', e.message); }
-
-      // === 策略3：DOM Selection/Range 操作 ===
-      try {
-        const ascIframe = findAscIframe();
-        if (ascIframe && ascIframe.contentWindow) {
-          const win = ascIframe.contentWindow;
-          console.log('[OO] 策略3: win=', !!win, 'getSelection=', typeof win?.getSelection);
-          if (win.getSelection) {
-            const sel = win.getSelection();
-            console.log('[OO] 策略3: sel=', !!sel, 'rangeCount=', sel?.rangeCount);
-            if (sel && sel.rangeCount > 0) {
-              const doc = ascIframe.contentDocument || win.document;
-              const range = sel.getRangeAt(0);
-              range.deleteContents();
-              range.insertNode(doc.createTextNode(value));
-              range.collapse(false);
-              sel.removeAllRanges();
-              sel.addRange(range);
-              console.log('[OO] ✅ 策略3成功 (DOM range)');
-              return true;
-            }
-          }
-        }
-      } catch (e) { console.warn('[OO] 策略3异常:', e.message); }
-
-      // 诊断：列出页面上所有 iframe
-      try {
-        const all = document.getElementsByTagName('iframe');
-        console.log(`[OO] ❌ 全部失败。页面共 ${all.length} 个 iframe:`);
-        for (let i = 0; i < Math.min(all.length, 8); i++) {
-          console.log(`  [${i}] id=${all[i].id} name=${all[i].name}`);
-        }
-      } catch (e) {}
-
+      } catch (e) { /* ignore */ }
       return false;
     },
-    // 通过 Click2Insert 插件在光标处插入（8.x 推荐方式：Asc.plugin.callCommand + InsertContent([para], true)）
+    // 通过 Click2Insert 插件在光标处插入（8.x 推荐方式）
     insertTextViaPlugin: (value) => {
       if (!value) return false;
-      const iframe = findPluginIframe();
-      if (!iframe) {
-        console.warn('[OO] insertTextViaPlugin: 找不到 click2insert 插件 iframe（请确认插件已部署到 OO 容器 sdkjs-plugins/click2insert/）');
-        return false;
-      }
       try {
+        // 递归找 src 含 'click2insert' 的 iframe
+        const findPluginIframe = () => {
+          let found = null;
+          const visit = (win, depth) => {
+            if (depth > 8 || found) return;
+            try {
+              const ifs = win.document.querySelectorAll('iframe');
+              for (let i = 0; i < ifs.length; i++) {
+                const f = ifs[i];
+                if (f.src && f.src.indexOf('click2insert') !== -1) { found = f; return; }
+                try { if (f.contentWindow) visit(f.contentWindow, depth + 1); } catch (e) {}
+              }
+            } catch (e) {}
+          };
+          visit(window, 0);
+          return found;
+        };
+        const iframe = findPluginIframe();
+        if (!iframe) {
+          console.warn('[OO] insertTextViaPlugin: 找不到 click2insert 插件 iframe');
+          return false;
+        }
         const win = iframe.contentWindow;
         if (win && typeof win.insertText === 'function') {
           win.insertText(value);
           console.log('[OO] ✅ insertTextViaPlugin 成功');
           return true;
         }
-        // 兜底：postMessage（与 Hanzheng connector 一致）
+        // 兜底：postMessage
         win.postMessage({ type: 'insertText', text: value }, '*');
-        console.log('[OO] ✅ insertTextViaPlugin postMessage 已发送');
         return true;
       } catch (e) {
         console.error('[OO] insertTextViaPlugin 异常:', e);
         return false;
       }
     },
+    // 触发 forcesave：OO 8.x SDK 无公开 server_forceSave 方法，
+    // 改走后端 /api/oo/force_save（向 OO CommandService 发 {"c":"forceSave","key":...} 命令），
+    // OO 收到命令后把当前文档（含占位段）POST(status=4) 到 callbackUrl 回写后端。
+    forceSave: async () => {
+      try {
+        const key = docKeyRef.current;
+        if (!key) { console.warn('[OO] forceSave 失败：document key 未就绪'); return false; }
+        const res = await fetch('/api/oo/force_save', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ key }),
+        });
+        const data = await res.json();
+        if (data.error) { console.error('[OO] forceSave 失败:', data); return false; }
+        if (data.no_changes) {
+          // OO 报告文档自上次回写后无新修改（如连续二次点击生成）→ 后端已是最新，直接放行渲染
+          console.log('[OO] forceSave: 文档无新修改，后端已是最新');
+          return { ok: true, no_changes: true };
+        }
+        console.log('[OO] ✅ forceSave 命令已发送');
+        return { ok: true };
+      } catch (e) { console.error('[OO] forceSave 异常:', e); return false; }
+    },
   }));
 
-  // 用 useMemo 锁定 config 引用稳定，避免 React 重复渲染触发 OO SDK 重建 iframe
-  // 关键：document.key 不能含 Date.now()，否则 OO SDK 会死循环卸载/重建
-  // docKeySeed 由父组件控制：上传新模板后 seed 变化 → 换 key → OO 重新下载转换新模板
-  const config = useMemo(() => ({
-    document: {
-      fileType: 'docx',
-      // 容器内该 key 已有转换好的 Editor.bin 缓存（绕过 docservie 缺失 /coauthoring/convert 端点）
-      key: 'zhihanyou-demo-v2-' + new Date().toISOString().slice(0, 10) + (docKeySeed ? '-' + docKeySeed : ''),  // 必须与容器内 cache 目录一致
-      title: '银行询证函模板',
-      url: docUrl,
-    },
-    documentType: 'word',
-    editorConfig: {
-      mode: 'edit',
-      lang: 'zh-CN',
-      customization: {
-        autosave: false,
-        toolbar: true,
-      },
-    },
-    events: {
-      onAppReady: () => {
-        console.log('[OO] onAppReady');
-        if (onReady) onReady();
-      },
-      onDocumentReady: () => {
-        console.log('[OO] onDocumentReady');
-        if (onReady) onReady();
-      },
-    },
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }), [docKeySeed]);  // 挂载时计算一次；docKeySeed 变化（上传新模板）时重新计算，配合父组件 React key 强制重建编辑器
-
   return (
-    <DocumentEditor
+    <div
+      ref={containerRef}
       id="onlyoffice-editor"
-      documentServerUrl="/onlyoffice"
-      config={config}
-      height="100%"
-      width="100%"
+      style={{ width: '100%', height: '100%' }}
     />
   );
 }));

@@ -3,7 +3,15 @@
 制函渲染验证服务 - Flask Web 应用
 启动: python app.py  → http://127.0.0.1:5002
 """
-import io, os, uuid, json, shutil, socket
+import io, os, sys, uuid, json, shutil, socket, time
+
+# Windows 下 stdout/stderr 默认 GBK 编码，print 里含 emoji（✅⏭❌等）会抛
+# UnicodeEncodeError 导致整个接口 500（callback 因此挂过）。统一强制 UTF-8+替换模式。
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding='utf-8', errors='replace')
+    except Exception:
+        pass
 from flask import Flask, request, render_template_string, jsonify, send_file, url_for
 
 from render_engine import (
@@ -24,6 +32,18 @@ TEMPLATE_UPLOAD_DIR = os.path.join(UPLOAD_DIR, 'templates')
 os.makedirs(TEMPLATE_UPLOAD_DIR, exist_ok=True)
 CURRENT_TEMPLATE = os.path.join(TEMPLATE_UPLOAD_DIR, 'current.docx')
 
+# OnlyOffice forcesave 回调记录（全局，供前端轮询判断保存是否完成）
+_last_save_key = None
+_last_save_ts = 0.0
+# 当前活跃编辑器的 document.key：callback 回写校验用。
+# 切换模板（上传新模板销毁旧编辑器）时，OO 会对旧 key 延迟触发 disconnect forcesave，
+# 若不校验 key，旧文档会覆盖刚上传的新模板（竞态）。
+_active_doc_key = None
+
+# OO Document Server 宿主机访问地址（docker 端口映射 8080->80）
+# 用途：①CommandService forcesave 命令 ②callback 里把容器内 url(127.0.0.1:8000) 替换为宿主机可达地址
+OO_PUBLIC_URL = 'http://localhost:8080'
+
 
 def get_current_template():
     """返回当前生效的模板路径：用户上传过的优先，否则用内置默认模板。"""
@@ -42,6 +62,15 @@ except Exception:
 
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50MB
+
+
+# ============ 临时调试：探测结果接收（诊断完成后删除） ============
+@app.route('/api/probe', methods=['POST'])
+def probe_receive():
+    data = request.get_json(silent=True) or {}
+    with open(os.path.join(BASE_DIR, 'probe_result.json'), 'w', encoding='utf-8') as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+    return jsonify({'ok': True})
 
 
 # ============ 页面 ============
@@ -212,12 +241,118 @@ def oo_get_template():
     tpl = get_current_template()
     if not os.path.exists(tpl):
         return jsonify({'error': '模板不存在: ' + tpl}), 404
-    return send_file(
+    resp = send_file(
         tpl,
         mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document',
         download_name='demo_template.docx',
         as_attachment=False,  # OO 需要内联下载，不是附件
     )
+    resp.headers['Cache-Control'] = 'no-store, must-revalidate'  # 禁止 HTTP 缓存，确保 OO 每次拿到最新模板
+    return resp
+
+
+# ============ OnlyOffice 保存回调（forcesave 机制：编辑器保存时回写后端模板）============
+# OO callback 协议（8.x）：
+#   status=1 BEING_EDITED（打开/编辑中）→ 仅返回 {"key"}
+#   status=2 READY_FOR_SAVING（用户点保存关闭）→ url 字段含文档下载链接 → 下载保存
+#   status=3 SAVED（已保存）→ 仅返回 {"key"}
+#   status=4 FORCE_SAVE（强制保存/forcesave）→ url 字段含文档下载链接 → 下载保存
+#   status=6 CORRUPTED / status=7 FORCE_SAVE_WITH_ERRORS → 异常，仍尝试下载
+@app.route('/api/oo/callback', methods=['POST'])
+def oo_callback():
+    """OO 编辑器保存时把当前文档（含占位段）POST 到此，后端下载覆盖 current.docx。
+    OO 容器通过 host.docker.internal:5002 访问本路由（与 getTemplate 同路径）。"""
+    global _last_save_key, _last_save_ts, _active_doc_key
+    import datetime, urllib.request, tempfile
+    data = request.get_json(force=True, silent=True) or {}
+    status = data.get('status')
+    key = data.get('key', '')
+    print(f"[OO-CB][{datetime.datetime.now()}] status={status} key={key[:24]}", flush=True)
+
+    # status=1（文档打开/编辑中）：自动登记为当前活跃 key（兜底纠正）
+    if status == 1 and key:
+        _active_doc_key = key
+
+    # 保存类 status：仅处理当前活跃编辑器的回写。
+    # 旧 key 的 disconnect forcesave（切换模板销毁编辑器时触发）直接跳过，
+    # 防止旧文档覆盖刚上传的新模板。
+    if status in (2, 4, 6, 7):
+        if key != _active_doc_key:
+            print(f"[OO-CB] [SKIP] 跳过旧 key 回写: {key[:24]} (active={(_active_doc_key or '')[:24]})", flush=True)
+            return jsonify({"key": key, "error": 0}), 200
+        url = data.get('url')
+        if url:
+            try:
+                # OO 给的 url 是容器内地址（如 http://127.0.0.1:8000/cache/...），宿主机需替换为映射地址
+                dl_url = url.replace('http://127.0.0.1:8000', OO_PUBLIC_URL)
+                tmp_fd, tmp_path = tempfile.mkstemp(suffix='.docx', dir=UPLOAD_DIR)
+                os.close(tmp_fd)
+                print(f"[OO-CB] 下载文档: {dl_url[:100]}", flush=True)
+                urllib.request.urlretrieve(dl_url, tmp_path)
+                if os.path.getsize(tmp_path) > 0:
+                    shutil.copyfile(tmp_path, CURRENT_TEMPLATE)
+                    _last_save_key = key
+                    _last_save_ts = time.time()
+                    print(f"[OO-CB] [OK] 模板已回写: {CURRENT_TEMPLATE} (size={os.path.getsize(CURRENT_TEMPLATE)}B)", flush=True)
+                else:
+                    print(f"[OO-CB] [WARN] 下载文档为空", flush=True)
+                os.remove(tmp_path)
+            except Exception as e:
+                print(f"[OO-CB] [FAIL] 保存失败: {e}", flush=True)
+                return jsonify({"key": key, "error": 1}), 200
+
+    return jsonify({"key": key, "error": 0}), 200
+
+
+@app.route('/api/oo/save_status')
+def oo_save_status():
+    """前端轮询：返回最新保存的 key + 时间戳，用于判断 forcesave 是否完成。"""
+    return jsonify({"saved_key": _last_save_key, "saved_ts": _last_save_ts})
+
+
+@app.route('/api/oo/active_key', methods=['POST'])
+def oo_active_key():
+    """前端注册当前活跃编辑器的 document.key（callback 回写校验用）。
+    上传新模板时前端会预注册新 key，先于旧编辑器的 disconnect forcesave 到达。"""
+    global _active_doc_key
+    data = request.get_json(force=True, silent=True) or {}
+    key = data.get('key')
+    if key:
+        _active_doc_key = key
+        print(f"[OO-AK] active key = {key[:28]}", flush=True)
+    return jsonify({"error": 0})
+
+
+@app.route('/api/oo/force_save', methods=['POST'])
+def oo_force_save():
+    """通过 OO CommandService 触发 forcesave（OO 8.x SDK 无公开 server_forceSave 方法）。
+    成功后 OO 会把当前文档 POST(status=4) 到 /api/oo/callback 完成回写。"""
+    import urllib.request, urllib.parse
+    data = request.get_json(force=True, silent=True) or {}
+    key = data.get('key')
+    if not key:
+        return jsonify({"error": "missing key"}), 400
+    # 8.1+ 建议加 shardkey，便于多 worker 路由到持有该文档的进程
+    cmd_url = OO_PUBLIC_URL + '/coauthoring/CommandService.ashx?shardkey=' + urllib.parse.quote(key)
+    req = urllib.request.Request(
+        cmd_url,
+        # 命令名必须全小写 "forcesave"：OO 命令解析区分大小写，"forceSave" 会返回 error=5（命令不正确）
+        data=json.dumps({"c": "forcesave", "key": key}).encode('utf-8'),
+        headers={'Content-Type': 'application/json'},
+        method='POST',
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            body = json.loads((resp.read().decode('utf-8') or '{}'))
+        print(f"[OO-FS] forcesave key={key[:28]} -> resp={body}", flush=True)
+        # error=4：OO 报告"forcesave 收到之前文档没有产生任何修改"——此时后端 current.docx
+        # 已是最新状态（此前 forcesave 已回写过），视为成功，直接放行渲染
+        if body.get('error') == 4:
+            return jsonify({"error": 0, "no_changes": True, "resp": body})
+        return jsonify({"error": body.get('error', 1), "resp": body})
+    except Exception as e:
+        print(f"[OO-FS] [FAIL] forcesave 失败: {e}", flush=True)
+        return jsonify({"error": str(e)})
 
 
 # ============ OnlyOffice 静态托管（模板/标注 docx）============

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 
 /**
  * 右侧操作面板 —— 精简版（与 HanZheng 一致的交互）
@@ -10,12 +10,13 @@ import React, { useState, useEffect } from 'react';
  *
  * 所有状态变化封装在此组件内，不影响左侧 OnlyOffice。
  */
-export default function RightPanel({ ready, insertText, updateStatus, onTemplateUploaded }) {
+export default function RightPanel({ ready, insertText, forceSave, updateStatus, onTemplateUploaded }) {
   const [sheets, setSheets] = useState([]);
   const [excelPath, setExcelPath] = useState(null);
   const [excelInfo, setExcelInfo] = useState('尚未上传 Excel');
   const [insertedSheets, setInsertedSheets] = useState(new Set()); // 记录已插入的 sheet
   const [tplInfo, setTplInfo] = useState('未上传（使用内置默认模板）');
+  const renderingRef = useRef(false); // 渲染流程进行中标志：防止"生成正式函证"被连点并发触发
 
   // ---- 上传 Word 模板 → 后端保存 → 通知 App 换 key 重载编辑器 ----
   const onTemplateChange = async (e) => {
@@ -66,28 +67,78 @@ export default function RightPanel({ ready, insertText, updateStatus, onTemplate
   const renderDoc = async () => {
     if (!excelPath) { alert('请先上传 Excel'); return; }
     if (insertedSheets.size === 0) { alert('请先点击至少一个 Sheet，在模板中插入标注'); return; }
+    if (renderingRef.current) { updateStatus('正在渲染中，请稍候...', true); return; }
+    renderingRef.current = true;
 
-    const bindings = Array.from(insertedSheets).map((sheetName, idx) => ({
-      pos_index: idx,
-      anchor_mode: 'after_para',
-      sheet_name: sheetName,
-      pos_label: `手动插入-${sheetName}`,
-    }));
+    try {
+      // 1. 触发 OO forcesave，把含占位段的文档回写到后端 current.docx
+      updateStatus('正在保存模板（含标注）到后端...');
+      let beforeTs = 0;
+      try {
+        const br = await fetch('/api/oo/save_status');
+        const bd = await br.json();
+        beforeTs = bd.saved_ts || 0;
+      } catch (e) {}
+      let fsRes = null;
+      try { fsRes = forceSave ? await forceSave() : null; } catch (e) {}
+      if (!fsRes || fsRes.ok === false) {
+        alert('保存失败：无法触发强制保存（编辑器未就绪或 key 缺失）');
+        updateStatus('保存失败', true);
+        return;
+      }
 
-    updateStatus(`渲染中...（${bindings.length} 个表格）`);
-    const res = await fetch('/api/render', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        tpl_path: null,
-        excel_path: excelPath,
-        bindings: bindings,
-      }),
-    });
-    const data = await res.json();
-    if (data.error) { alert(data.error); updateStatus('渲染失败'); return; }
-    updateStatus(`✓ 渲染成功！共 ${data.output_table_count} 个表格`);
-    window.open(data.download_url, '_blank');
+      // no_changes：OO 报告文档自上次回写后无新修改（如连续二次点击生成），
+      // 后端 current.docx 已是最新状态，跳过等待直接渲染
+      if (!fsRes.no_changes) {
+        // 2. 轮询 save_status 等保存完成（最多 20 秒）
+        let saved = false;
+        for (let i = 0; i < 40; i++) {
+          await new Promise(r => setTimeout(r, 500));
+          try {
+            const sr = await fetch('/api/oo/save_status');
+            const sd = await sr.json();
+            if (sd.saved_ts > beforeTs) { saved = true; break; }
+          } catch (e) {}
+        }
+        if (!saved) {
+          alert('模板保存超时，请确认编辑器已就绪后重试');
+          updateStatus('模板保存超时', true);
+          return;
+        }
+      }
+      updateStatus('✓ 模板已保存，开始渲染...');
+
+      // 3. 调 render（此时后端 current.docx 已含占位段）
+      const bindings = Array.from(insertedSheets).map((sheetName, idx) => ({
+        pos_index: idx,
+        anchor_mode: 'after_para',
+        sheet_name: sheetName,
+        pos_label: `手动插入-${sheetName}`,
+      }));
+
+      updateStatus(`渲染中...（${bindings.length} 个表格）`);
+      const res = await fetch('/api/render', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tpl_path: null,
+          excel_path: excelPath,
+          bindings: bindings,
+        }),
+      });
+      const data = await res.json();
+      if (data.error) { alert(data.error); updateStatus('渲染失败'); return; }
+      updateStatus(`✓ 渲染成功！共 ${data.output_table_count} 个表格`);
+      // 用隐藏 <a download> 触发下载：window.open('_blank') 会短暂开新标签再关闭，造成页面视觉闪烁
+      const a = document.createElement('a');
+      a.href = data.download_url;
+      a.download = '正式函证.docx';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    } finally {
+      renderingRef.current = false;
+    }
   };
 
   const insertedCount = insertedSheets.size;

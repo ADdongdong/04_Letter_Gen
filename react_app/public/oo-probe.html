@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><title>probe</title></head>
+<body>
+<div id="ph"></div>
+<pre id="out">INIT</pre>
+<script>
+window.__errs = [];
+window.__net = [];
+window.onerror = function (m) { window.__errs.push('onerror:' + m); };
+(function () {
+  var of = window.fetch;
+  if (of) window.fetch = function () { window.__net.push('F:' + arguments[0]); return of.apply(this, arguments); };
+  var oo = XMLHttpRequest.prototype.open;
+  XMLHttpRequest.prototype.open = function (m, u) { window.__net.push('X:' + m + ' ' + u); return oo.apply(this, arguments); };
+  var OWS = window.WebSocket;
+  window.WebSocket = function (u, p) { window.__net.push('WS:' + u); return new OWS(u, p); };
+  window.WebSocket.prototype = OWS.prototype;
+})();
+</script>
+<script src="/onlyoffice/web-apps/apps/api/documents/api.js"></script>
+<script>
+let appReady = false, docReady = false;
+try {
+  const de = new DocsAPI.DocEditor('ph', {
+    document: { fileType: 'docx', key: 'probe-newkey-' + Date.now(), title: 't.docx', url: 'http://host.docker.internal:5002/api/oo/getTemplate' },
+    documentType: 'word',
+    documentServerUrl: '/onlyoffice',
+    editorConfig: { mode: 'edit', lang: 'zh-CN' },
+    events: {
+      onAppReady: function () { appReady = true; },
+      onDocumentReady: function () { docReady = true; },
+      onError: function (e) { window.__errs.push('OOERR:' + JSON.stringify(e)); }
+    }
+  });
+  window.__de = de;
+} catch (e) { window.__errs.push('create:' + (e.message || e)); }
+
+function report() {
+  var r = JSON.stringify({ appReady: appReady, docReady: docReady, errs: window.__errs, net: window.__net.slice(-25) }, null, 1);
+  document.getElementById('out').textContent = r;
+  try { fetch('/api/probe', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: r }).catch(function () {}); } catch (e) {}
+}
+setInterval(report, 2500);
+setTimeout(function () { document.title = 'PROBE_DONE'; report(); }, 20000);
+</script>
+</body>
+</html>
