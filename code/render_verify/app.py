@@ -19,6 +19,18 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 DEFAULT_TPL = os.path.join(BASE_DIR, '..', 'conversion_test', 'demo_template.docx')
+# 用户上传的 Word 模板（覆盖内置默认模板）
+TEMPLATE_UPLOAD_DIR = os.path.join(UPLOAD_DIR, 'templates')
+os.makedirs(TEMPLATE_UPLOAD_DIR, exist_ok=True)
+CURRENT_TEMPLATE = os.path.join(TEMPLATE_UPLOAD_DIR, 'current.docx')
+
+
+def get_current_template():
+    """返回当前生效的模板路径：用户上传过的优先，否则用内置默认模板。"""
+    if os.path.exists(CURRENT_TEMPLATE) and os.path.getsize(CURRENT_TEMPLATE) > 0:
+        return CURRENT_TEMPLATE
+    return DEFAULT_TPL
+
 # OnlyOffice 通过 http 加载 docx，必须用本机可被 OnlyOffice 访问的内网 IP
 try:
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -66,6 +78,10 @@ def upload_template():
     path = os.path.join(UPLOAD_DIR, f'tpl_{uid}.docx')
     f.save(path)
 
+    # 同步为"当前模板"：此后 /api/oo/getTemplate 与 /api/render 均使用它
+    shutil.copyfile(path, CURRENT_TEMPLATE)
+    print(f"[TPL-UP] 模板已上传并生效: {f.filename} -> {CURRENT_TEMPLATE}", flush=True)
+
     doc = Document(path)
     paras = [p.text for p in doc.paragraphs]
     tables = []
@@ -81,6 +97,8 @@ def upload_template():
     return jsonify({
         'path': path,
         'uid': uid,
+        'name': f.filename,
+        'size_kb': round(os.path.getsize(path) / 1024, 1),
         'para_count': len(paras),
         'table_count': len(tables),
         'text_width_inch': round(text_w, 2),
@@ -116,7 +134,7 @@ def upload_excel():
 @app.route('/api/template_anchors', methods=['GET'])
 def template_anchors():
     """解析默认模板文档中的占位锚点，返回动态位置列表。"""
-    tpl = DEFAULT_TPL
+    tpl = get_current_template()
     if not os.path.exists(tpl):
         return jsonify({'error': '默认模板不存在: ' + tpl}), 404
     try:
@@ -137,7 +155,7 @@ def bind_annotate():
     """
     data = request.get_json()
     bindings = data.get('bindings', [])
-    tpl = data.get('tpl_path') or DEFAULT_TPL
+    tpl = data.get('tpl_path') or get_current_template()
     excel_path = data.get('excel_path')  # 有则预览真实表格
     sheet_count = data.get('sheet_count')  # 位置数应 = Sheet 数，不足时自动补锚点
     if not os.path.exists(tpl):
@@ -164,7 +182,7 @@ def bind_annotate():
 @app.route('/api/render', methods=['POST'])
 def render():
     data = request.get_json()
-    tpl_path = data.get('tpl_path') or DEFAULT_TPL
+    tpl_path = data.get('tpl_path') or get_current_template()
     excel_path = data.get('excel_path')
     bindings = data.get('bindings', [])
 
@@ -201,7 +219,7 @@ def oo_get_template():
     后端动态返回文件流，OO 服务端从此接口下载文档。"""
     import datetime
     print(f"[OO-DL][{datetime.datetime.now()}] OnlyOffice 请求模板下载 来自: {request.remote_addr}  UA: {request.headers.get('User-Agent','')[:60]}", flush=True)
-    tpl = DEFAULT_TPL
+    tpl = get_current_template()
     if not os.path.exists(tpl):
         return jsonify({'error': '模板不存在: ' + tpl}), 404
     return send_file(

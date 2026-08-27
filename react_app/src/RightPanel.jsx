@@ -10,11 +10,27 @@ import React, { useState, useEffect } from 'react';
  *
  * 所有状态变化封装在此组件内，不影响左侧 OnlyOffice。
  */
-export default function RightPanel({ ready, insertText, updateStatus }) {
+export default function RightPanel({ ready, insertText, updateStatus, onTemplateUploaded }) {
   const [sheets, setSheets] = useState([]);
   const [excelPath, setExcelPath] = useState(null);
   const [excelInfo, setExcelInfo] = useState('尚未上传 Excel');
   const [insertedSheets, setInsertedSheets] = useState(new Set()); // 记录已插入的 sheet
+  const [tplInfo, setTplInfo] = useState('未上传（使用内置默认模板）');
+
+  // ---- 上传 Word 模板 → 后端保存 → 通知 App 换 key 重载编辑器 ----
+  const onTemplateChange = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    setTplInfo('上传中...');
+    const fd = new FormData();
+    fd.append('file', file);
+    const res = await fetch('/api/upload_template', { method: 'POST', body: fd });
+    const data = await res.json();
+    if (data.error) { alert(data.error); setTplInfo('上传失败，仍使用原模板'); return; }
+    setTplInfo(`✓ 已上传「${data.name}」（${data.size_kb}KB），编辑器重载中...`);
+    updateStatus('✓ 模板已上传，左侧编辑器重载中...');
+    if (onTemplateUploaded) onTemplateUploaded();
+  };
 
   // ---- 上传 Excel ----
   const onExcelChange = async (e) => {
@@ -78,7 +94,14 @@ export default function RightPanel({ ready, insertText, updateStatus }) {
 
   return (
     <div className="right">
-      <h2>1. 上传 Excel（多 Sheet）</h2>
+      <h2>0. 上传 Word 模板（可选）</h2>
+      <div className="file-box">
+        <label htmlFor="tpl-file">📝 点击选择 Word 模板 (.docx)</label>
+        <input id="tpl-file" type="file" accept=".docx" onChange={onTemplateChange} />
+      </div>
+      <div className="info">{tplInfo}</div>
+
+      <h2 style={{ marginTop: '16px' }}>1. 上传 Excel（多 Sheet）</h2>
       <div className="file-box">
         <label htmlFor="excel-file">📊 点击选择 Excel (.xlsx)</label>
         <input id="excel-file" type="file" accept=".xlsx,.xlsm" onChange={onExcelChange} />

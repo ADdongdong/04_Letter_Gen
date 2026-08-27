@@ -9,7 +9,7 @@ import { DocumentEditor } from '@onlyoffice/document-editor-react';
  *   直接调用其 contentWindow.insertText(text) 在「当前光标处」插入文字。
  *   （OnlyOffice 会记忆上次光标位置，无需用户反复点模板）
  */
-const OnlyOfficeEditor = memo(forwardRef(({ docUrl, onReady }, ref) => {
+const OnlyOfficeEditor = memo(forwardRef(({ docUrl, docKeySeed, onReady }, ref) => {
   // 递归查找满足条件的 iframe（兼容嵌套 iframe）
   const findIframeByCondition = (startNode, condition, depth = 0) => {
     if (depth > 5) return null;
@@ -168,11 +168,12 @@ const OnlyOfficeEditor = memo(forwardRef(({ docUrl, onReady }, ref) => {
 
   // 用 useMemo 锁定 config 引用稳定，避免 React 重复渲染触发 OO SDK 重建 iframe
   // 关键：document.key 不能含 Date.now()，否则 OO SDK 会死循环卸载/重建
+  // docKeySeed 由父组件控制：上传新模板后 seed 变化 → 换 key → OO 重新下载转换新模板
   const config = useMemo(() => ({
     document: {
       fileType: 'docx',
       // 容器内该 key 已有转换好的 Editor.bin 缓存（绕过 docservie 缺失 /coauthoring/convert 端点）
-      key: 'zhihanyou-demo-v2-' + new Date().toISOString().slice(0, 10),  // 必须与容器内 cache 目录一致
+      key: 'zhihanyou-demo-v2-' + new Date().toISOString().slice(0, 10) + (docKeySeed ? '-' + docKeySeed : ''),  // 必须与容器内 cache 目录一致
       title: '银行询证函模板',
       url: docUrl,
     },
@@ -196,7 +197,7 @@ const OnlyOfficeEditor = memo(forwardRef(({ docUrl, onReady }, ref) => {
       },
     },
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }), []);  // 故意空依赖：只挂载时计算一次，docUrl 变化用 key 重新挂载
+  }), [docKeySeed]);  // 挂载时计算一次；docKeySeed 变化（上传新模板）时重新计算，配合父组件 React key 强制重建编辑器
 
   return (
     <DocumentEditor

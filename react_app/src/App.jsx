@@ -9,6 +9,8 @@ const TEMPLATE_URL = 'http://host.docker.internal:5002/api/oo/getTemplate';
 export default function App() {
   const editorRef = useRef(null);
   const [ready, setReady] = useState(false);
+  // 模板版本号：每上传一次新 Word 模板 +1，用于换 OO document.key 强制重载新模板
+  const [templateVersion, setTemplateVersion] = useState(0);
 
   // 用 ref 存储状态信息，避免触发 App 重渲染导致 OnlyOffice 刷新
   const statusRef = useRef('加载中...');
@@ -22,6 +24,12 @@ export default function App() {
       if (ok) return true;
     }
     return editorRef.current.insertText(text);
+  }, []);
+
+  // ---- 模板上传成功：换 key 强制重建 OnlyOffice 编辑器，加载新模板 ----
+  const handleTemplateUploaded = useCallback(() => {
+    setReady(false);
+    setTemplateVersion((v) => v + 1);
   }, []);
 
   // ---- 回调：更新状态栏文字（不触发重渲染）----
@@ -39,11 +47,14 @@ export default function App() {
       <div className="left">
         <div className="toolbar">
           <span className="title">银行询证函模板（OnlyOffice）</span>
-          <span id="oo-status" className="status">{statusRef.current}</span>
+          {/* 状态栏内容由 updateStatus 直接操作 DOM（脱离 React 管理），避免 textContent 与 React diff 冲突 */}
+          <span id="oo-status" className="status" />
         </div>
         <div className="editor-area">
           {/* OnlyOfficeEditor 被 React.memo 包裹，props 不变时绝不重渲染 */}
           <OnlyOfficeEditor
+            key={'oo-' + templateVersion}
+            docKeySeed={'v' + templateVersion}
             ref={editorRef}
             docUrl={TEMPLATE_URL}
             onReady={() => {
@@ -59,6 +70,7 @@ export default function App() {
         ready={ready}
         insertText={insertText}
         updateStatus={updateStatus}
+        onTemplateUploaded={handleTemplateUploaded}
       />
     </div>
   );
