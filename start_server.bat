@@ -17,10 +17,10 @@ echo ============================================
 echo.
 
 REM --- 1. 清理可能残留的端口进程 ---
-"E:\08_Anaconda3\Anaconda3\envs\pytorch\python.exe" "e:\13_dingdian\03_demo\04_Letter_Gen\code\render_verify\_clean_ports.py"
+"E:\13_dingdian\03_demo\04_Letter_Gen\venv\Scripts\python.exe" "e:\13_dingdian\03_demo\04_Letter_Gen\code\render_verify\_clean_ports.py"
 
 REM --- 2. 启动 Flask 5002 + 静态 8899 (Python 启动器) ---
-"E:\08_Anaconda3\Anaconda3\envs\pytorch\python.exe" "e:\13_dingdian\03_demo\04_Letter_Gen\code\render_verify\start_all.py"
+"E:\13_dingdian\03_demo\04_Letter_Gen\venv\Scripts\python.exe" "e:\13_dingdian\03_demo\04_Letter_Gen\code\render_verify\start_all.py"
 
 REM --- 3. 启动 React 前端 5173 (vite dev) ---
 echo [启动] React 前端 (vite dev) -> http://127.0.0.1:5173/

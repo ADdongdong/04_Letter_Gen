@@ -3,7 +3,7 @@
 制函渲染验证服务 - Flask Web 应用
 启动: python app.py  → http://127.0.0.1:5002
 """
-import io, os, sys, uuid, json, shutil, socket, time
+import io, os, sys, re, uuid, json, shutil, socket, time, zipfile
 
 # Windows 下 stdout/stderr 默认 GBK 编码，print 里含 emoji（✅⏭❌等）会抛
 # UnicodeEncodeError 导致整个接口 500（callback 因此挂过）。统一强制 UTF-8+替换模式。
@@ -15,8 +15,8 @@ for _stream in (sys.stdout, sys.stderr):
 from flask import Flask, request, render_template_string, jsonify, send_file, url_for
 
 from render_engine import (
-    read_excel_sheets, render_template, get_text_width, _table_width_twips,
-    extract_anchors, annotate_bindings,
+    read_excel_sheets, read_excel_grouped, render_template, get_text_width,
+    _table_width_twips, extract_anchors, annotate_bindings,
 )
 from docx import Document
 
@@ -127,6 +127,15 @@ def upload_template():
 
 
 # ============ 上传 Excel ============
+def _format_empty_cells(empty_cells):
+    """把空分组行定位列表拼成用户可读的位置清单：『Sheet名 第N行（列名）』；超 20 处截断并注明总数"""
+    parts = ['{} 第{}行（{}）'.format(c['sheet'], c['row'], c['col']) for c in empty_cells]
+    text = '；'.join(parts[:20])
+    if len(parts) > 20:
+        text += '；等共 %d 处' % len(parts)
+    return text
+
+
 @app.route('/api/upload_excel', methods=['POST'])
 def upload_excel():
     f = request.files.get('file')
@@ -137,6 +146,15 @@ def upload_excel():
     f.save(path)
 
     sheets = read_excel_sheets(path)
+
+    # 批量制函检测：表头前两列 =「被审计单位」「被询证单位」的 Sheet 参与分组，
+    # 组合 (被审计单位, 被询证单位) 唯一确定一封函证；无前两列结构的 Sheet 跳过
+    grouped = read_excel_grouped(path)
+    # 分组 Sheet 中前两列为空的行：终止上传，要求用户补充后重新上传（精确到 Sheet/行/列）
+    if grouped['empty_cells']:
+        return jsonify({'error': '检测到 %d 处「被审计单位/被询证单位」为空，请补充后重新上传：%s'
+            % (len(grouped['empty_cells']), _format_empty_cells(grouped['empty_cells']))}), 400
+
     return jsonify({
         'path': path,
         'uid': uid,
@@ -145,7 +163,12 @@ def upload_excel():
             'header': s['header'],
             'row_count': len(s['rows']),
             'preview': s['rows'][:5],
+            'is_grouped': len(s['header']) >= 2
+                and s['header'][0].strip() == '被审计单位'
+                and s['header'][1].strip() == '被询证单位',
         } for s in sheets],
+        'batch_mode': len(grouped['groups']) > 0,
+        'groups': [{'audit': g[0], 'confirm': g[1]} for g in grouped['groups']],
     })
 
 
@@ -222,12 +245,82 @@ def render():
         return jsonify({'error': str(e)}), 500
 
 
+# ============ 批量渲染（往来函证：按前两列分组，N 封打包 ZIP） ============
+@app.route('/api/render_batch', methods=['POST'])
+def render_batch():
+    """批量制函：Excel 各分组 Sheet 前两列为「被审计单位/被询证单位」，
+    按 (被审计单位, 被询证单位) 组合分组，共用同一模板循环渲染 N 封 docx，打包 ZIP。"""
+    data = request.get_json()
+    tpl_path = data.get('tpl_path') or get_current_template()
+    excel_path = data.get('excel_path')
+    bindings = data.get('bindings', [])
+
+    if not os.path.exists(tpl_path):
+        return jsonify({'error': '模板不存在: ' + tpl_path}), 400
+    if not excel_path or not os.path.exists(excel_path):
+        return jsonify({'error': '请先上传 Excel'}), 400
+    if not bindings:
+        return jsonify({'error': '请至少添加一个绑定'}), 400
+
+    try:
+        grouped = read_excel_grouped(excel_path)
+    except Exception as e:
+        return jsonify({'error': '解析批量 Excel 失败: ' + str(e)}), 500
+
+    groups = grouped.get('groups', [])
+    if not groups:
+        return jsonify({'error': '未检测到批量数据：Excel 中没有表头前两列为「被审计单位/被询证单位」的 Sheet'}), 400
+    # 防御纵深：绕过上传直调接口时同样拦截空分组行
+    if grouped.get('empty_cells'):
+        return jsonify({'error': '检测到 %d 处「被审计单位/被询证单位」为空，请补充后重新上传：%s'
+            % (len(grouped['empty_cells']), _format_empty_cells(grouped['empty_cells']))}), 400
+
+    uid = uuid.uuid4().hex[:8]
+    batch_dir = os.path.join(OUTPUT_DIR, f'batch_{uid}')
+    os.makedirs(batch_dir, exist_ok=True)
+
+    files = []
+    try:
+        for audit, confirm in groups:
+            safe_name = _safe_filename(f'{audit}-{confirm}')
+            out_path = os.path.join(batch_dir, f'{safe_name}.docx')
+            stats = render_template(tpl_path, excel_path, bindings, out_path, group_key=(audit, confirm))
+            files.append({
+                'file': f'{safe_name}.docx',
+                'audit': audit,
+                'confirm': confirm,
+                'tables': stats.get('output_table_count', 0),
+                'skipped_empty': stats.get('skipped_empty', []),
+            })
+            print(f"[BATCH] {audit} - {confirm}: tables={stats.get('output_table_count')}", flush=True)
+
+        zip_path = os.path.join(OUTPUT_DIR, f'batch_{uid}.zip')
+        with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
+            for item in files:
+                zf.write(os.path.join(batch_dir, item['file']), item['file'])
+        return jsonify({
+            'count': len(files),
+            'files': files,
+            'download_url': f'/api/download/{os.path.basename(zip_path)}',
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+def _safe_filename(name):
+    """清洗 Windows 文件名非法字符 /\\:*?"<>| → _"""
+    cleaned = re.sub(r'[\\/:*?"<>|]', '_', name).strip()
+    return cleaned or '未命名'
+
+
 @app.route('/api/download/<fname>')
 def download(fname):
     path = os.path.join(OUTPUT_DIR, fname)
     if not os.path.exists(path):
         return jsonify({'error': '文件不存在'}), 404
-    return send_file(path, as_attachment=True, download_name='渲染结果.docx')
+    ext = os.path.splitext(fname)[1].lower()
+    download_name = '渲染结果.zip' if ext == '.zip' else '渲染结果.docx'
+    return send_file(path, as_attachment=True, download_name=download_name)
 
 
 # ============ OnlyOffice 文档下载接口（hanzheng 模式：docUrl 指向后端 API）============

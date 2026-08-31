@@ -83,6 +83,7 @@ const OnlyOfficeEditor = memo(forwardRef(({ docUrl, docKey, onReady }, ref) => {
           documentType: 'word',
           editorConfig: {
             mode: 'edit',
+            lang: 'zh-CN',  // 编辑器界面语言（默认按浏览器语言，未识别时回落英文）
             callbackUrl: callbackUrl,
             customization: {
               forcesave: true,  // 启用强制保存：用户点保存按钮或前端调 server_forceSave 触发回写后端

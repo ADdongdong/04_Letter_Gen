@@ -17,6 +17,7 @@ export default function RightPanel({ ready, insertText, forceSave, updateStatus,
   const [insertedSheets, setInsertedSheets] = useState(new Set()); // 记录已插入的 sheet
   const [tplInfo, setTplInfo] = useState('未上传（使用内置默认模板）');
   const renderingRef = useRef(false); // 渲染流程进行中标志：防止"生成正式函证"被连点并发触发
+  const [batchInfo, setBatchInfo] = useState(null); // {mode, count} 批量制函模式：Excel 表头前两列为被审计单位/被询证单位
 
   // ---- 上传 Word 模板 → 后端保存 → 通知 App 换 key 重载编辑器 ----
   const onTemplateChange = async (e) => {
@@ -46,8 +47,18 @@ export default function RightPanel({ ready, insertText, forceSave, updateStatus,
     setExcelPath(data.path);
     setSheets(data.sheets);
     setInsertedSheets(new Set());
-    setExcelInfo(`已加载：${data.sheets.length} 个 Sheet（${file.name}）`);
-    updateStatus(`✓ Excel 已加载：${data.sheets.length} 个 Sheet`);
+    if (data.warnings && data.warnings.length) { alert(data.warnings.join('\n')); }
+    if (data.batch_mode) {
+      // 批量制函：Excel 表头前两列为被审计单位/被询证单位，组合数 = 函数量
+      setBatchInfo({ mode: true, count: (data.groups || []).length });
+      const groupedCount = data.sheets.filter(s => s.is_grouped).length;
+      setExcelInfo(`已加载：${data.sheets.length} 个 Sheet（${file.name}）· 批量模式：${(data.groups || []).length} 封函证 / ${groupedCount} 个分组 Sheet`);
+      updateStatus(`✓ 批量 Excel 已加载：${(data.groups || []).length} 封函证（${groupedCount} 个分组 Sheet，其余跳过）`);
+    } else {
+      setBatchInfo(null);
+      setExcelInfo(`已加载：${data.sheets.length} 个 Sheet（${file.name}）`);
+      updateStatus(`✓ Excel 已加载：${data.sheets.length} 个 Sheet`);
+    }
   };
 
   // ---- 点击 Sheet → 在左侧 OnlyOffice 光标处插入标注 ----
@@ -108,7 +119,8 @@ export default function RightPanel({ ready, insertText, forceSave, updateStatus,
       }
       updateStatus('✓ 模板已保存，开始渲染...');
 
-      // 3. 调 render（此时后端 current.docx 已含占位段）
+      // 3. 调 render（此时后端 current.docx 已含占位段）；批量模式走 /api/render_batch
+      const isBatch = batchInfo && batchInfo.mode;
       const bindings = Array.from(insertedSheets).map((sheetName, idx) => ({
         pos_index: idx,
         anchor_mode: 'after_para',
@@ -116,8 +128,10 @@ export default function RightPanel({ ready, insertText, forceSave, updateStatus,
         pos_label: `手动插入-${sheetName}`,
       }));
 
-      updateStatus(`渲染中...（${bindings.length} 个表格）`);
-      const res = await fetch('/api/render', {
+      updateStatus(isBatch
+        ? `批量渲染中...（${batchInfo.count} 封函证，每封独立保存，请耐心等待）`
+        : `渲染中...（${bindings.length} 个表格）`);
+      const res = await fetch(isBatch ? '/api/render_batch' : '/api/render', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -128,11 +142,16 @@ export default function RightPanel({ ready, insertText, forceSave, updateStatus,
       });
       const data = await res.json();
       if (data.error) { alert(data.error); updateStatus('渲染失败'); return; }
-      updateStatus(`✓ 渲染成功！共 ${data.output_table_count} 个表格`);
+      if (isBatch) {
+        if (data.warnings && data.warnings.length) { alert(data.warnings.join('\n')); }
+        updateStatus(`✓ 批量渲染成功！共 ${data.count} 封函证，ZIP 已开始下载`);
+      } else {
+        updateStatus(`✓ 渲染成功！共 ${data.output_table_count} 个表格`);
+      }
       // 用隐藏 <a download> 触发下载：window.open('_blank') 会短暂开新标签再关闭，造成页面视觉闪烁
       const a = document.createElement('a');
       a.href = data.download_url;
-      a.download = '正式函证.docx';
+      a.download = isBatch ? '批量函证.zip' : '正式函证.docx';
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -203,7 +222,9 @@ export default function RightPanel({ ready, insertText, forceSave, updateStatus,
               onClick={renderDoc}
               style={{ opacity: insertedCount === 0 ? 0.5 : 1 }}
             >
-              🚀 生成正式函证{insertedCount > 0 ? `（${insertedCount} 个表格）` : ''}
+              {batchInfo && batchInfo.mode
+                ? `🚀 批量生成正式函证（${batchInfo.count} 封）`
+                : `🚀 生成正式函证${insertedCount > 0 ? `（${insertedCount} 个表格）` : ''}`}
             </button>
           </div>
 

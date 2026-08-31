@@ -22,7 +22,9 @@ def get_text_width(doc):
 
 
 def read_excel_sheets(xlsx_path):
-    """读取 Excel 所有 Sheet，返回 [{name, header, rows}]"""
+    """读取 Excel 所有 Sheet，返回 [{name, header, rows, row_nums, ...}]
+    row_nums: 与 rows 一一对应的数据行在 Excel 中的真实行号（1 基，数据从第 2 行起，第 1 行为表头）
+    """
     wb = load_workbook(xlsx_path, data_only=True)
     sheets = []
     for ws in wb.worksheets:
@@ -31,17 +33,103 @@ def read_excel_sheets(xlsx_path):
             continue
         # 表头 = 第一行，数据 = 其余行
         header = [str(c) if c is not None else '' for c in rows[0]]
-        data = [[str(c) if c is not None else '' for c in r] for r in rows[1:]]
-        # 过滤全空数据行
-        data = [r for r in data if any(v.strip() for v in r)]
+        # 过滤全空数据行，同步保留 Excel 真实行号（供批量制函报错定位）
+        data = []
+        row_nums = []
+        for excel_row, r in enumerate(rows[1:], start=2):
+            cells = [str(c) if c is not None else '' for c in r]
+            if any(v.strip() for v in cells):
+                data.append(cells)
+                row_nums.append(excel_row)
         sheets.append({
             'name': ws.title,
             'header': header,
             'rows': data,
+            'row_nums': row_nums,
             'max_row': ws.max_row,
             'max_col': ws.max_column,
         })
     return sheets
+
+
+# 批量制函：分组列表头（Sheet 第 1 行前两列精确匹配才算分组 Sheet）
+_GROUP_COL_AUDIT = '被审计单位'
+_GROUP_COL_CONFIRM = '被询证单位'
+
+
+def _is_group_header(header):
+    """判断表头前两列是否为「被审计单位」「被询证单位」→ 是则为批量分组 Sheet"""
+    if len(header) < 2:
+        return False
+    return header[0].strip() == _GROUP_COL_AUDIT and header[1].strip() == _GROUP_COL_CONFIRM
+
+
+def read_excel_grouped(xlsx_path):
+    """
+    读取批量 Excel（多封函证数据写在同一个 Excel 中）：
+    - 仅处理表头前两列为「被审计单位」「被询证单位」的 Sheet（其余跳过）
+    - 按 (被审计单位, 被询证单位) 组合把每个分组 Sheet 的行分组，同一组合的数据可分散在多个 Sheet
+
+    返回：
+    {
+        'sheets':  [sheet_name, ...],                # 分组 Sheet 名（保序）
+        'groups':  [(audit, confirm), ...],          # 全部组合并集（保序）＝ N 封函证
+        'empty_cells': [                             # 分组 Sheet 中前两列任一为空的数据行定位
+            {'sheet': sheet_name, 'row': Excel行号, 'col': '被审计单位'|'被询证单位'},
+        ],                                           # 非空时上层应终止制函并要求用户补充
+        'virtual_sheets': {                          # 预构造的"虚拟 sheet"（供 render_template 直接消费）
+            sheet_name: {
+                (audit, confirm): {'name', 'header', 'rows', ...},  # header/rows 均去掉前两列（从第 3 列起）
+            },                                       # 组合在该 Sheet 无行时 rows=[]（渲染时跳过并删占位段）
+        },
+    }
+    """
+    sheets = read_excel_sheets(xlsx_path)
+    grouped_rows = {}   # sheet_name -> {key: [原始行,...]}
+    sheet_headers = {}  # sheet_name -> 第 3 列起的表头
+    sheet_order = []
+    groups = []
+    seen = set()
+    empty_cells = []
+    for sheet in sheets:
+        if not _is_group_header(sheet['header']):
+            continue
+        buckets = {}
+        for row, excel_row in zip(sheet['rows'], sheet.get('row_nums') or []):
+            audit = row[0].strip() if len(row) > 0 else ''
+            confirm = row[1].strip() if len(row) > 1 else ''
+            # 前两列任一为空：记录精确位置（上层据此终止制函，要求用户补充）
+            if not audit:
+                empty_cells.append({'sheet': sheet['name'], 'row': excel_row, 'col': _GROUP_COL_AUDIT})
+            if not confirm:
+                empty_cells.append({'sheet': sheet['name'], 'row': excel_row, 'col': _GROUP_COL_CONFIRM})
+            key = (audit, confirm)
+            if key not in buckets:
+                buckets[key] = []
+            buckets[key].append(row)
+            if key not in seen:
+                seen.add(key)
+                groups.append(key)
+        grouped_rows[sheet['name']] = buckets
+        sheet_headers[sheet['name']] = sheet['header'][2:]
+        sheet_order.append(sheet['name'])
+
+    # 为每个分组 Sheet × 每个全局组合构造虚拟 sheet（无数据的组合 rows=[]）
+    virtual_sheets = {}
+    for name in sheet_order:
+        vmap = {}
+        for key in groups:
+            rows = [r[2:] for r in grouped_rows[name].get(key, [])]
+            vmap[key] = {
+                'name': name,
+                'header': sheet_headers[name],
+                'rows': rows,
+                'max_row': len(rows) + 1,
+                'max_col': len(sheet_headers[name]),
+            }
+        virtual_sheets[name] = vmap
+
+    return {'sheets': sheet_order, 'groups': groups, 'empty_cells': empty_cells, 'virtual_sheets': virtual_sheets}
 
 
 def _set_cell_text(cell, text, bold=False, size=10, align='center'):
@@ -259,7 +347,7 @@ def annotate_bindings(tpl_path, bindings, out_path, excel_path=None, sheet_count
 _PLACEHOLDER_PREFIX = '【Sheet'
 
 
-def render_template(tpl_path, xlsx_path, bindings, out_path):
+def render_template(tpl_path, xlsx_path, bindings, out_path, group_key=None):
     """
     渲染：读取模板，按绑定关系注入多个 Sheet 表格，保存结果。
 
@@ -273,6 +361,10 @@ def render_template(tpl_path, xlsx_path, bindings, out_path):
         xlsx_path: Excel 路径
         bindings: [{sheet_name, pos_index, anchor_mode}] 列表
         out_path: 输出 docx 路径
+        group_key: 可选 (被审计单位, 被询证单位) 元组。传入时启用批量模式：
+            按 read_excel_grouped 分组，仅渲染该组合的行；虚拟 sheet 的表头与数据
+            均从第 3 列起（不含前两列分组列）；该组合在某个 Sheet 无行时跳过注入
+            并删除其占位段。
 
     返回：统计信息
     """
@@ -281,8 +373,13 @@ def render_template(tpl_path, xlsx_path, bindings, out_path):
     doc = Document(tpl_path)
     text_width = get_text_width(doc)
 
-    sheets = read_excel_sheets(xlsx_path)
-    sheet_map = {s['name']: s for s in sheets}
+    if group_key is not None:
+        grouped = read_excel_grouped(xlsx_path)
+        sheet_map = {name: vmap[group_key] for name, vmap in grouped['virtual_sheets'].items()}
+        sheets = [sheet_map[n] for n in grouped['sheets'] if n in sheet_map]
+    else:
+        sheets = read_excel_sheets(xlsx_path)
+        sheet_map = {s['name']: s for s in sheets}
 
     stats = {
         'template_para_count': len(doc.paragraphs),
@@ -309,6 +406,10 @@ def render_template(tpl_path, xlsx_path, bindings, out_path):
         sheet = sheet_map[sheet_name]
         if not sheet['rows']:
             stats['skipped_empty'].append(sheet_name)
+            # 该 Sheet 无数据行：同时删除模板中它的占位段，避免输出残留「【Sheet「xxx」...】」
+            placeholder_para_idx = _find_placeholder_para(doc, sheet_name)
+            if placeholder_para_idx is not None:
+                _remove_paragraph_at(doc, placeholder_para_idx)
             continue
 
         pos_index = binding.get('pos_index', binding.get('anchor_idx'))

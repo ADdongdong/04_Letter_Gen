@@ -16,7 +16,7 @@
 
 ```bash
 # 在项目根（本目录）运行
-E:\08_Anaconda3\Anaconda3\envs\pytorch\python.exe app.py
+E:\13_dingdian\03_demo\04_Letter_Gen\venv\Scripts\python.exe app.py
 ```
 
 浏览器打开 `http://127.0.0.1:5002`

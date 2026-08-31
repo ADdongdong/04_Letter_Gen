@@ -49,5 +49,5 @@
 
 ## 环境
 
-- **Python**：`E:\08_Anaconda3\Anaconda3\envs\pytorch\python.exe`（已装 flask/docx/openpyxl）
+- **Python**：项目 venv `E:\13_dingdian\03_demo\04_Letter_Gen\venv\Scripts\python.exe`（Python 3.14，已装 flask/docx/openpyxl）
 - **node**：`C:\nvm4w\nodejs`（node v24.18.0，已加入用户 PATH，重启终端生效）

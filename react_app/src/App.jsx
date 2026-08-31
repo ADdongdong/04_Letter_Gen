@@ -69,7 +69,6 @@ export default function App() {
     <div className="layout">
       <div className="left">
         <div className="toolbar">
-          <span className="title">银行询证函模板（OnlyOffice）</span>
           {/* 状态栏内容由 updateStatus 直接操作 DOM（脱离 React 管理），避免 textContent 与 React diff 冲突 */}
           <span id="oo-status" className="status" />
         </div>
