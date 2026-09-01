@@ -8,7 +8,7 @@
 - 数据 = Sheet 其余行
 - 表格总宽锁定为模板文本宽度
 """
-import io, os
+import io, os, re
 from docx import Document
 from docx.shared import Pt, Cm, Emu
 from docx.oxml.ns import qn
@@ -391,12 +391,10 @@ def render_template(tpl_path, xlsx_path, bindings, out_path, group_key=None):
         'not_found': [],
     }
 
-    # 确保锚点数量
-    need = len(sheets)
-    if bindings:
-        need = max(need, max(b.get('pos_index', b.get('anchor_idx', 0)) + 1 for b in bindings))
-    if need > 0:
-        ensure_anchor_count(doc, need)
+    # 注意：不再预建锚点（ensure_anchor_count）——占位段驱动的制函（模板即定义）若预建锚点，
+    # 未被使用的锚点段落会残留在文档末尾（「（此处将动态插入 Sheet 表格）」×N）。
+    # 锚点仅在旧流程 fallback（binding 带 pos_index 且模板无占位段）时由 resolve_anchor_idx 按需补建。
+    occurrence_count = {}  # sheet_name -> 已替换/删除的占位段出现次数（支持同一 Sheet 多处插入）
 
     for binding in bindings:
         sheet_name = binding['sheet_name']
@@ -406,17 +404,17 @@ def render_template(tpl_path, xlsx_path, bindings, out_path, group_key=None):
         sheet = sheet_map[sheet_name]
         if not sheet['rows']:
             stats['skipped_empty'].append(sheet_name)
-            # 该 Sheet 无数据行：同时删除模板中它的占位段，避免输出残留「【Sheet「xxx」...】」
-            placeholder_para_idx = _find_placeholder_para(doc, sheet_name)
+            # 该 Sheet 无数据行：同时删除模板中它的占位段（按出现次序），避免输出残留「【Sheet「xxx」...】」
+            placeholder_para_idx = _find_placeholder_para(doc, sheet_name, occurrence_count.get(sheet_name, 0))
             if placeholder_para_idx is not None:
                 _remove_paragraph_at(doc, placeholder_para_idx)
+                occurrence_count[sheet_name] = occurrence_count.get(sheet_name, 0) + 1
             continue
 
-        pos_index = binding.get('pos_index', binding.get('anchor_idx'))
-        anchor_idx = resolve_anchor_idx(doc, pos_index) if pos_index is not None else None
-
-        # 策略：先找占位符段落（annotate 阶段写入的），有则替换；无则追加
-        placeholder_para_idx = _find_placeholder_para(doc, sheet_name)
+        # 策略：占位段优先——先找占位符段落（annotate 阶段写入的），命中即替换；
+        # 同一 Sheet 插入多处时按出现次序依次替换（occurrence 计数）。
+        # 占位段命中的路径不触碰锚点（不 ensure），避免产生残留的锚点段落。
+        placeholder_para_idx = _find_placeholder_para(doc, sheet_name, occurrence_count.get(sheet_name, 0))
 
         if placeholder_para_idx is not None:
             # 找到占位符 → 在占位符位置注入表格，然后删除占位符段落
@@ -427,15 +425,19 @@ def render_template(tpl_path, xlsx_path, bindings, out_path, group_key=None):
             )
             # 删除占位符段落（表格已插入在其后，需重新定位）
             _remove_paragraph_at(doc, placeholder_para_idx)
-        elif anchor_idx is not None:
-            # 无占位符 → 直接在锚点段落后插入
-            table = inject_sheet_table(
-                doc, sheet,
-                anchor_mode='after_para',
-                anchor_idx=anchor_idx,
-            )
+            occurrence_count[sheet_name] = occurrence_count.get(sheet_name, 0) + 1
         else:
-            table = inject_sheet_table(doc, sheet, anchor_mode='end')
+            # 无占位符 → 旧流程 fallback：按 pos_index 解析锚点（内部按需 ensure），无 pos_index 则文档末尾
+            pos_index = binding.get('pos_index', binding.get('anchor_idx'))
+            anchor_idx = resolve_anchor_idx(doc, pos_index) if pos_index is not None else None
+            if anchor_idx is not None:
+                table = inject_sheet_table(
+                    doc, sheet,
+                    anchor_mode='after_para',
+                    anchor_idx=anchor_idx,
+                )
+            else:
+                table = inject_sheet_table(doc, sheet, anchor_mode='end')
 
         stats['injected'].append({
             'sheet': sheet_name,
@@ -448,12 +450,17 @@ def render_template(tpl_path, xlsx_path, bindings, out_path, group_key=None):
     return stats
 
 
-def _find_placeholder_para(doc, sheet_name):
-    """查找 annotate 写入的占位符段落「【Sheet「xxx」表格将在此处展示】」，返回段落索引或 None"""
+def _find_placeholder_para(doc, sheet_name, occurrence=0):
+    """查找 annotate 写入的占位符段落「【Sheet「xxx」表格将在此处展示】」。
+    occurrence：同一 Sheet 插入多处时，取第 N 次出现的占位段（0 基）。
+    返回段落索引或 None"""
     marker = 'Sheet\u300c%s\u300d' % sheet_name   # 「xxx」
+    seen = -1
     for i, p in enumerate(doc.paragraphs):
         if _PLACEHOLDER_PREFIX in p.text and marker in p.text:
-            return i
+            seen += 1
+            if seen >= occurrence:
+                return i
     return None
 
 
@@ -463,3 +470,27 @@ def _remove_paragraph_at(doc, para_idx):
     if 0 <= para_idx < len(paras):
         p_el = paras[para_idx]._p
         p_el.getparent().remove(p_el)
+
+
+def extract_placeholder_bindings(docx_path):
+    """
+    扫描模板 docx 中所有「【Sheet「xxx」...】」占位段（按文档顺序），自动生成 bindings 列表。
+    批量制函接口据此从模板自身提取插入关系——前端无需传 bindings，模板即全部定义。
+    同一 Sheet 多处插入会生成多条 binding（render 时按出现次序依次替换）。
+    """
+    doc = Document(docx_path)
+    bindings = []
+    for p in doc.paragraphs:
+        if _PLACEHOLDER_PREFIX not in p.text:
+            continue
+        m = re.search(r'Sheet\u300c(.+?)\u300d', p.text)
+        if not m:
+            continue
+        name = m.group(1)
+        bindings.append({
+            'sheet_name': name,
+            'pos_index': len(bindings),
+            'anchor_mode': 'after_para',
+            'pos_label': '占位-%s' % name,
+        })
+    return bindings

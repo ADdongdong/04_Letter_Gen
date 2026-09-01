@@ -1,8 +1,10 @@
 * { box-sizing: border-box; }
-html, body, #root { height: 100%; margin: 0; }
+html, body { height: 100%; margin: 0; }
+#root { height: 100%; display: flex; flex-direction: column; }
 body { font-family: "Microsoft YaHei", Arial, sans-serif; background: #f5f7fa; color: #333; }
 
-.layout { display: flex; height: 100vh; }
+/* 顶部导航条之后填充剩余高度（导航条在 #root 内自然占据顶部） */
+.layout { display: flex; flex: 1; min-height: 0; }
 .left { flex: 1; display: flex; flex-direction: column; border-right: 1px solid #e0e0e0; }
 .right { width: 400px; padding: 16px; overflow-y: auto; background: #fff; }
 

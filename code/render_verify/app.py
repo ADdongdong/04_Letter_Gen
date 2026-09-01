@@ -15,8 +15,8 @@ for _stream in (sys.stdout, sys.stderr):
 from flask import Flask, request, render_template_string, jsonify, send_file, url_for
 
 from render_engine import (
-    read_excel_sheets, read_excel_grouped, render_template, get_text_width,
-    _table_width_twips, extract_anchors, annotate_bindings,
+    read_excel_sheets, read_excel_grouped, extract_placeholder_bindings,
+    render_template, get_text_width, _table_width_twips, extract_anchors, annotate_bindings,
 )
 from docx import Document
 
@@ -136,6 +136,39 @@ def _format_empty_cells(empty_cells):
     return text
 
 
+# ============ 函证登记数据（模拟函证系统的函证台账） ============
+# 当前阶段读本地 JSON 模拟；集成函证系统时把 _load_letters_registry 替换为真实接口/库表查询即可。
+LETTERS_REGISTRY = os.path.join(BASE_DIR, 'data', 'letters_registry.json')
+
+
+def _load_letters_registry():
+    """函证登记清单：[{audit, confirm, letter_no}]——被审计单位+被询证单位 唯一对应一个函证编号"""
+    try:
+        with open(LETTERS_REGISTRY, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except Exception:
+        return []
+
+
+def _match_letters(groups, letters):
+    """把批量 Excel 的组合 (audit, confirm) 与函证登记数据精确匹配。
+    groups: [(audit, confirm)] → [{audit, confirm, letter_no, matched}]；未匹配 letter_no=None"""
+    index = {}
+    for it in letters:
+        index[(str(it.get('audit', '')).strip(), str(it.get('confirm', '')).strip())] = str(it.get('letter_no') or '').strip()
+    result = []
+    for audit, confirm in groups:
+        no = index.get((audit, confirm), '')
+        result.append({'audit': audit, 'confirm': confirm, 'letter_no': no or None, 'matched': bool(no)})
+    return result
+
+
+@app.route('/api/letters')
+def letters_list():
+    """函证登记清单（模拟函证系统数据，供前端/调试查看）"""
+    return jsonify({'letters': _load_letters_registry()})
+
+
 @app.route('/api/upload_excel', methods=['POST'])
 def upload_excel():
     f = request.files.get('file')
@@ -169,6 +202,8 @@ def upload_excel():
         } for s in sheets],
         'batch_mode': len(grouped['groups']) > 0,
         'groups': [{'audit': g[0], 'confirm': g[1]} for g in grouped['groups']],
+        # 函证编号匹配：组合与函证登记数据比对（未匹配的制函时跳过）
+        'match_results': _match_letters(grouped['groups'], _load_letters_registry()),
     })
 
 
@@ -321,6 +356,190 @@ def download(fname):
     ext = os.path.splitext(fname)[1].lower()
     download_name = '渲染结果.zip' if ext == '.zip' else '渲染结果.docx'
     return send_file(path, as_attachment=True, download_name=download_name)
+
+
+# ============ 模板配置存储（templates_store：配置页维护，制函页引用） ============
+TEMPLATES_DIR = os.path.join(BASE_DIR, 'templates_store')
+TEMPLATES_INDEX = os.path.join(TEMPLATES_DIR, 'index.json')
+os.makedirs(TEMPLATES_DIR, exist_ok=True)
+
+
+def _load_templates_index():
+    if not os.path.exists(TEMPLATES_INDEX):
+        return []
+    try:
+        with open(TEMPLATES_INDEX, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except Exception:
+        return []
+
+
+def _save_templates_index(items):
+    with open(TEMPLATES_INDEX, 'w', encoding='utf-8') as f:
+        json.dump(items, f, ensure_ascii=False, indent=2)
+
+
+@app.route('/api/templates')
+def templates_list():
+    """模板配置清单（制函页下拉 + 配置页列表）"""
+    return jsonify({'templates': _load_templates_index()})
+
+
+@app.route('/api/templates/save', methods=['POST'])
+def templates_save():
+    """保存模板配置（id 空=新建）。前端已先 forceSave 回写 current.docx 并轮询确认后才调本接口。
+    body: {id?, name, excel_path}"""
+    data = request.get_json()
+    name = (data.get('name') or '').strip()
+    excel_path = data.get('excel_path')
+    tid = data.get('id')
+    if not name:
+        return jsonify({'error': '请填写模板名称'}), 400
+    if not excel_path or not os.path.exists(excel_path):
+        return jsonify({'error': '请先上传 Excel'}), 400
+
+    items = _load_templates_index()
+    for it in items:
+        if it['name'] == name and it['id'] != tid:
+            return jsonify({'error': '模板名称「%s」已存在' % name}), 400
+
+    now = time.strftime('%Y-%m-%d %H:%M:%S')
+    if tid:
+        item = next((x for x in items if x['id'] == tid), None)
+        if not item:
+            return jsonify({'error': '模板不存在'}), 404
+        item['name'] = name
+        item['updated_at'] = now
+    else:
+        tid = 'tpl_' + uuid.uuid4().hex[:8]
+        item = {'id': tid, 'name': name, 'created_at': now, 'updated_at': now, 'sheets': []}
+        items.append(item)
+
+    tpl_dir = os.path.join(TEMPLATES_DIR, tid)
+    os.makedirs(tpl_dir, exist_ok=True)
+    # current.docx 已由 forcesave 回写（前端轮询确认后才调本接口）
+    shutil.copyfile(get_current_template(), os.path.join(tpl_dir, 'word.docx'))
+    shutil.copyfile(excel_path, os.path.join(tpl_dir, 'excel.xlsx'))
+    try:
+        item['sheets'] = [s['name'] for s in read_excel_sheets(excel_path)]
+    except Exception:
+        item['sheets'] = []
+    _save_templates_index(items)
+    print(f"[TPL-SAVE] 模板配置已保存: id={tid} name={name} sheets={item['sheets']}", flush=True)
+    return jsonify({'id': tid, 'name': name, 'sheets': item['sheets']})
+
+
+@app.route('/api/templates/<tid>', methods=['DELETE'])
+def templates_delete(tid):
+    items = _load_templates_index()
+    item = next((x for x in items if x['id'] == tid), None)
+    if not item:
+        return jsonify({'error': '模板不存在'}), 404
+    items.remove(item)
+    _save_templates_index(items)
+    tpl_dir = os.path.join(TEMPLATES_DIR, tid)
+    if os.path.isdir(tpl_dir):
+        shutil.rmtree(tpl_dir, ignore_errors=True)
+    print(f"[TPL-DEL] 模板配置已删除: id={tid} name={item['name']}", flush=True)
+    return jsonify({'ok': True})
+
+
+@app.route('/api/templates/<tid>/word')
+def templates_word(tid):
+    """模板 word 下载（配置页修改模式时 OnlyOffice 经 host.docker.internal 加载用）"""
+    path = os.path.join(TEMPLATES_DIR, tid, 'word.docx')
+    if not os.path.exists(path):
+        return jsonify({'error': '模板不存在'}), 404
+    resp = send_file(
+        path,
+        mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        download_name='template.docx',
+        as_attachment=False,
+    )
+    resp.headers['Cache-Control'] = 'no-store, must-revalidate'
+    return resp
+
+
+# ============ 批量制函（制函页：下拉选模板 + 上传批量 Excel，模板即定义） ============
+@app.route('/api/generate', methods=['POST'])
+def generate():
+    """JSON: {template_id, excel_path}（Excel 已先经 /api/upload_excel 校验并落盘）。
+    从模板 word 自动提取占位段 bindings（模板即定义），无需前端传绑定关系。"""
+    data = request.get_json(force=True, silent=True) or {}
+    template_id = data.get('template_id')
+    excel_path = data.get('excel_path')
+    if not template_id:
+        return jsonify({'error': '请选择制函模板'}), 400
+    if not excel_path or not os.path.exists(excel_path):
+        return jsonify({'error': '请先上传 Excel'}), 400
+
+    item = next((x for x in _load_templates_index() if x['id'] == template_id), None)
+    if not item:
+        return jsonify({'error': '模板不存在'}), 404
+    tpl_word = os.path.join(TEMPLATES_DIR, template_id, 'word.docx')
+    if not os.path.exists(tpl_word):
+        return jsonify({'error': '模板 Word 文件缺失'}), 404
+
+    uid = uuid.uuid4().hex[:8]
+
+    # 批量格式校验 + 空分组行拦截
+    try:
+        grouped = read_excel_grouped(excel_path)
+    except Exception as e:
+        return jsonify({'error': '解析 Excel 失败: ' + str(e)}), 500
+    if not grouped['groups']:
+        return jsonify({'error': '请上传批量格式 Excel：各 Sheet 表头前两列需为「被审计单位」「被询证单位」'}), 400
+    if grouped['empty_cells']:
+        return jsonify({'error': '检测到 %d 处「被审计单位/被询证单位」为空，请补充后重新上传：%s'
+            % (len(grouped['empty_cells']), _format_empty_cells(grouped['empty_cells']))}), 400
+
+    # 函证编号匹配：仅渲染系统已登记的函证；未匹配的组合整封跳过
+    matches = _match_letters(grouped['groups'], _load_letters_registry())
+    matched = [(m['audit'], m['confirm'], m['letter_no']) for m in matches if m['matched']]
+    unmatched = [{'audit': m['audit'], 'confirm': m['confirm']} for m in matches if not m['matched']]
+    if not matched:
+        return jsonify({'error': 'Excel 中所有函证在系统中均未登记（缺少对应的函证编号），无法制函。请先在函证系统完成登记。'}), 400
+
+    # 从模板自动提取绑定关系（模板即定义）
+    bindings = extract_placeholder_bindings(tpl_word)
+    if not bindings:
+        return jsonify({'error': '模板中未找到任何占位段（【Sheet「xxx」...】），请先在配置页完成标注'}), 400
+
+    # Sheet 匹配提示：模板占位段引用了但 Excel 中不存在的 Sheet
+    sheet_missing = sorted({b['sheet_name'] for b in bindings if b['sheet_name'] not in grouped['sheets']})
+
+    batch_dir = os.path.join(OUTPUT_DIR, f'gen_{uid}')
+    os.makedirs(batch_dir, exist_ok=True)
+    files = []
+    try:
+        for audit, confirm, letter_no in matched:
+            safe_name = _safe_filename(f'{audit}-{confirm}')
+            out_path = os.path.join(batch_dir, f'{safe_name}.docx')
+            stats = render_template(tpl_word, excel_path, bindings, out_path, group_key=(audit, confirm))
+            files.append({
+                'file': f'{safe_name}.docx',
+                'audit': audit,
+                'confirm': confirm,
+                'letter_no': letter_no,
+                'tables': stats.get('output_table_count', 0),
+                'skipped_empty': stats.get('skipped_empty', []),
+                'not_found': stats.get('not_found', []),
+            })
+            print(f"[GENERATE] {audit} - {confirm} ({letter_no}): tables={stats.get('output_table_count')}", flush=True)
+
+        zip_path = os.path.join(OUTPUT_DIR, f'gen_{uid}.zip')
+        with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
+            for it in files:
+                zf.write(os.path.join(batch_dir, it['file']), it['file'])
+        return jsonify({
+            'count': len(files),
+            'files': files,
+            'unmatched': unmatched,
+            'sheet_missing': sheet_missing,
+            'download_url': f'/api/download/{os.path.basename(zip_path)}',
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 
 # ============ OnlyOffice 文档下载接口（hanzheng 模式：docUrl 指向后端 API）============

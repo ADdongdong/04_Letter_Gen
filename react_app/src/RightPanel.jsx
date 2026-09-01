@@ -10,14 +10,14 @@ import React, { useState, useEffect, useRef } from 'react';
  *
  * 所有状态变化封装在此组件内，不影响左侧 OnlyOffice。
  */
-export default function RightPanel({ ready, insertText, forceSave, updateStatus, onTemplateUploaded }) {
+export default function RightPanel({ ready, insertText, forceSave, updateStatus, onTemplateUploaded, editingId, editingName, onTemplateSaved }) {
   const [sheets, setSheets] = useState([]);
   const [excelPath, setExcelPath] = useState(null);
   const [excelInfo, setExcelInfo] = useState('尚未上传 Excel');
   const [insertedSheets, setInsertedSheets] = useState(new Set()); // 记录已插入的 sheet
   const [tplInfo, setTplInfo] = useState('未上传（使用内置默认模板）');
-  const renderingRef = useRef(false); // 渲染流程进行中标志：防止"生成正式函证"被连点并发触发
-  const [batchInfo, setBatchInfo] = useState(null); // {mode, count} 批量制函模式：Excel 表头前两列为被审计单位/被询证单位
+  const [tplName, setTplName] = useState('');   // 模板配置名称
+  const [saving, setSaving] = useState(false);  // 保存模板配置进行中
 
   // ---- 上传 Word 模板 → 后端保存 → 通知 App 换 key 重载编辑器 ----
   const onTemplateChange = async (e) => {
@@ -47,18 +47,9 @@ export default function RightPanel({ ready, insertText, forceSave, updateStatus,
     setExcelPath(data.path);
     setSheets(data.sheets);
     setInsertedSheets(new Set());
-    if (data.warnings && data.warnings.length) { alert(data.warnings.join('\n')); }
-    if (data.batch_mode) {
-      // 批量制函：Excel 表头前两列为被审计单位/被询证单位，组合数 = 函数量
-      setBatchInfo({ mode: true, count: (data.groups || []).length });
-      const groupedCount = data.sheets.filter(s => s.is_grouped).length;
-      setExcelInfo(`已加载：${data.sheets.length} 个 Sheet（${file.name}）· 批量模式：${(data.groups || []).length} 封函证 / ${groupedCount} 个分组 Sheet`);
-      updateStatus(`✓ 批量 Excel 已加载：${(data.groups || []).length} 封函证（${groupedCount} 个分组 Sheet，其余跳过）`);
-    } else {
-      setBatchInfo(null);
-      setExcelInfo(`已加载：${data.sheets.length} 个 Sheet（${file.name}）`);
-      updateStatus(`✓ Excel 已加载：${data.sheets.length} 个 Sheet`);
-    }
+    const groupedCount = data.sheets.filter(s => s.is_grouped).length;
+    setExcelInfo(`已加载：${data.sheets.length} 个 Sheet（${file.name}），其中 ${groupedCount} 个为分组结构 Sheet`);
+    updateStatus(`✓ Excel 已加载：${data.sheets.length} 个 Sheet（${groupedCount} 个分组 Sheet）`);
   };
 
   // ---- 点击 Sheet → 在左侧 OnlyOffice 光标处插入标注 ----
@@ -74,15 +65,16 @@ export default function RightPanel({ ready, insertText, forceSave, updateStatus,
     setInsertedSheets((prev) => new Set([...prev, sheet.name]));
   };
 
-  // ---- 生成正式函证 ----
-  const renderDoc = async () => {
-    if (!excelPath) { alert('请先上传 Excel'); return; }
-    if (insertedSheets.size === 0) { alert('请先点击至少一个 Sheet，在模板中插入标注'); return; }
-    if (renderingRef.current) { updateStatus('正在渲染中，请稍候...', true); return; }
-    renderingRef.current = true;
+  // ---- 保存模板配置：forceSave 回写 current.docx → 复制到模板配置目录 ----
+  const saveTemplate = async () => {
+    const name = tplName.trim();
+    if (!name) { alert('请填写模板名称'); return; }
+    if (!excelPath) { alert('请先上传 Excel（用于定义 Sheet 结构，可以没有数据）'); return; }
+    if (saving) return;
+    setSaving(true);
 
     try {
-      // 1. 触发 OO forcesave，把含占位段的文档回写到后端 current.docx
+      // 1. forceSave 把 OO 当前内容（含占位段标注）回写到 current.docx
       updateStatus('正在保存模板（含标注）到后端...');
       let beforeTs = 0;
       try {
@@ -98,10 +90,9 @@ export default function RightPanel({ ready, insertText, forceSave, updateStatus,
         return;
       }
 
-      // no_changes：OO 报告文档自上次回写后无新修改（如连续二次点击生成），
-      // 后端 current.docx 已是最新状态，跳过等待直接渲染
+      // no_changes：文档自上次回写后无新修改，current.docx 已是最新，跳过轮询
       if (!fsRes.no_changes) {
-        // 2. 轮询 save_status 等保存完成（最多 20 秒）
+        // 2. 轮询 save_status 等回写完成（最多 20 秒）
         let saved = false;
         for (let i = 0; i < 40; i++) {
           await new Promise(r => setTimeout(r, 500));
@@ -117,46 +108,23 @@ export default function RightPanel({ ready, insertText, forceSave, updateStatus,
           return;
         }
       }
-      updateStatus('✓ 模板已保存，开始渲染...');
 
-      // 3. 调 render（此时后端 current.docx 已含占位段）；批量模式走 /api/render_batch
-      const isBatch = batchInfo && batchInfo.mode;
-      const bindings = Array.from(insertedSheets).map((sheetName, idx) => ({
-        pos_index: idx,
-        anchor_mode: 'after_para',
-        sheet_name: sheetName,
-        pos_label: `手动插入-${sheetName}`,
-      }));
-
-      updateStatus(isBatch
-        ? `批量渲染中...（${batchInfo.count} 封函证，每封独立保存，请耐心等待）`
-        : `渲染中...（${bindings.length} 个表格）`);
-      const res = await fetch(isBatch ? '/api/render_batch' : '/api/render', {
+      // 3. 落盘为模板配置（id 空=新建；编辑模式带 editingId）
+      const res = await fetch('/api/templates/save', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          tpl_path: null,
-          excel_path: excelPath,
-          bindings: bindings,
-        }),
+        body: JSON.stringify({ id: editingId || undefined, name, excel_path: excelPath }),
       });
       const data = await res.json();
-      if (data.error) { alert(data.error); updateStatus('渲染失败'); return; }
-      if (isBatch) {
-        if (data.warnings && data.warnings.length) { alert(data.warnings.join('\n')); }
-        updateStatus(`✓ 批量渲染成功！共 ${data.count} 封函证，ZIP 已开始下载`);
-      } else {
-        updateStatus(`✓ 渲染成功！共 ${data.output_table_count} 个表格`);
-      }
-      // 用隐藏 <a download> 触发下载：window.open('_blank') 会短暂开新标签再关闭，造成页面视觉闪烁
-      const a = document.createElement('a');
-      a.href = data.download_url;
-      a.download = isBatch ? '批量函证.zip' : '正式函证.docx';
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
+      if (data.error) { alert(data.error); updateStatus('保存失败', true); return; }
+      updateStatus(`✓ 模板配置「${data.name}」已保存（含 ${data.sheets.length} 个 Sheet），可到制函页使用`);
+      if (onTemplateSaved) onTemplateSaved();  // 刷新配置页顶部模板列表
+      alert(`模板配置「${data.name}」已保存`);
+    } catch (e) {
+      alert('保存失败：' + e.message);
+      updateStatus('保存失败', true);
     } finally {
-      renderingRef.current = false;
+      setSaving(false);
     }
   };
 
@@ -215,27 +183,42 @@ export default function RightPanel({ ready, insertText, forceSave, updateStatus,
             })}
           </div>
 
-          <div className="actions" style={{ marginTop: '16px' }}>
-            <button
-              className="btn primary"
-              disabled={insertedCount === 0}
-              onClick={renderDoc}
-              style={{ opacity: insertedCount === 0 ? 0.5 : 1 }}
-            >
-              {batchInfo && batchInfo.mode
-                ? `🚀 批量生成正式函证（${batchInfo.count} 封）`
-                : `🚀 生成正式函证${insertedCount > 0 ? `（${insertedCount} 个表格）` : ''}`}
-            </button>
-          </div>
-
           <div className="hint" style={{ marginTop: '12px' }}>
             💡 提示：每次点击 Sheet，文字会插入到模板中<strong>当前光标所在位置</strong>。
-            若插入失败，请先在模板中点一下再重试。生成函证时所有
+            若插入失败，请先在模板中点一下再重试。制函时所有
             <code style={{ background: '#eee', padding: '1px 4px' }}>【Sheet「...」】</code>
             标注会被替换为真实表格。
           </div>
         </>
       )}
+
+      {/* 保存模板配置：始终可见（Excel 可以没数据，但必须有 Sheet 名称） */}
+      <div style={{ marginTop: '20px', padding: '14px', background: '#f7f7fb', borderRadius: '8px', border: '1px solid #e3e0f5' }}>
+        <h3 style={{ margin: '0 0 10px' }}>
+          {editingId
+            ? '✏️ 修改模板配置' + (editingName ? '：「' + editingName + '」' : '')
+            : '💾 保存为模板配置'}
+        </h3>
+        <input
+          type="text"
+          placeholder="模板名称（如：往来非标询证函）"
+          value={tplName}
+          onChange={e => setTplName(e.target.value)}
+          style={{ width: '100%', padding: '8px', boxSizing: 'border-box', marginBottom: '10px' }}
+        />
+        <button
+          className="btn primary"
+          onClick={saveTemplate}
+          disabled={saving}
+          style={{ width: '100%', padding: '10px' }}
+        >
+          {saving ? '⏳ 保存中...' : (editingId ? '💾 保存修改' : '💾 保存模板配置')}
+        </button>
+        <div className="hint" style={{ marginTop: '10px' }}>
+          {editingId ? '正在编辑已有模板，保存后将覆盖该模板的 Word 与 Excel。' : '保存后可到「Excel 制函」页选择此模板批量制函。'}
+          保存时自动把左侧编辑器当前内容（含占位段标注）回写为模板 Word 文件；上传的 Excel 仅用于定义 Sheet 结构，可以没有数据。
+        </div>
+      </div>
     </div>
   );
 }

@@ -46,6 +46,18 @@ const OnlyOfficeEditor = memo(forwardRef(({ docUrl, docKey, onReady }, ref) => {
 
     const init = async () => {
       try {
+        // 空态（docUrl 为空：新增模板尚未上传 Word）：销毁旧实例，显示占位提示，不创建编辑器
+        if (!docUrl) {
+          if (editorRef.current) {
+            try { await editorRef.current.destroyEditor(); } catch (e) {}
+            editorRef.current = null;
+          }
+          if (window.DocEditor && window.DocEditor.instances) {
+            window.DocEditor.instances['onlyoffice-editor'] = undefined;
+          }
+          if (container) container.innerHTML = '';
+          return;
+        }
         // 1. 销毁旧实例（await 等 OO SDK 8.2 异步清理完成）
         if (editorRef.current) {
           try { await editorRef.current.destroyEditor(); } catch (e) { /* ignore */ }
@@ -222,11 +234,29 @@ const OnlyOfficeEditor = memo(forwardRef(({ docUrl, docKey, onReady }, ref) => {
   }));
 
   return (
-    <div
-      ref={containerRef}
-      id="onlyoffice-editor"
-      style={{ width: '100%', height: '100%' }}
-    />
+    <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+      {/* 空态占位（新增模板未上传 Word 时不加载任何文档） */}
+      {!docUrl && (
+        <div
+          style={{
+            position: 'absolute', inset: 0, zIndex: 5,
+            display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+            gap: '8px', background: '#fff', color: '#888', fontSize: '15px',
+          }}
+        >
+          <span style={{ fontSize: '40px' }}>📄</span>
+          <span>请先在右侧上传 Word 模板</span>
+          <span style={{ fontSize: '12px', color: '#aaa' }}>
+            上传后此处将展示模板内容，可在光标处插入 Sheet 占位段
+          </span>
+        </div>
+      )}
+      <div
+        ref={containerRef}
+        id="onlyoffice-editor"
+        style={{ width: '100%', height: '100%' }}
+      />
+    </div>
   );
 }));
 
