@@ -175,7 +175,7 @@ export default function RightPanel({ ready, insertText, forceSave, updateStatus,
                   <span style={{ marginLeft: 'auto', fontSize: '11px' }}>
                     {isInserted
                       ? <span style={{ color: '#2e7d32' }}>✅ 已插入</span>
-                      : <span style={{ color: '#534AB7' }}>👆 点击插入</span>
+                      : <span style={{ color: 'var(--primary)' }}>👆 点击插入</span>
                     }
                   </span>
                 </div>
@@ -193,7 +193,7 @@ export default function RightPanel({ ready, insertText, forceSave, updateStatus,
       )}
 
       {/* 保存模板配置：始终可见（Excel 可以没数据，但必须有 Sheet 名称） */}
-      <div style={{ marginTop: '20px', padding: '14px', background: '#f7f7fb', borderRadius: '8px', border: '1px solid #e3e0f5' }}>
+      <div style={{ marginTop: '20px', padding: '14px', background: 'var(--primary-bg-light)', borderRadius: '8px', border: '1px solid var(--primary-border)' }}>
         <h3 style={{ margin: '0 0 10px' }}>
           {editingId
             ? '✏️ 修改模板配置' + (editingName ? '：「' + editingName + '」' : '')

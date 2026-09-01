@@ -22,28 +22,13 @@ function Router() {
   }, []);
   const isGenerate = route.startsWith('#/generate');
   const isConfig = route.startsWith('#/config');
-  const navLink = (href, label, active) => (
-    <a
-      href={href}
-      style={{
-        color: '#fff',
-        textDecoration: 'none',
-        fontWeight: active ? 700 : 400,
-        padding: '4px 10px',
-        borderRadius: '4px',
-        background: active ? 'rgba(255,255,255,0.2)' : 'transparent',
-      }}
-    >
-      {label}
-    </a>
-  );
   return (
     <>
-      <div style={{ padding: '8px 16px', background: '#534AB7', display: 'flex', gap: '8px', alignItems: 'center' }}>
-        <span style={{ color: 'rgba(255,255,255,0.85)', fontSize: '13px', marginRight: '8px' }}>函证制函工具</span>
-        {navLink('#/templates', '模板列表', !isGenerate && !isConfig)}
-        {navLink('#/generate', 'Excel 制函', isGenerate)}
-        {isConfig && <span style={{ color: 'rgba(255,255,255,0.85)', fontSize: '13px', padding: '4px 10px' }}>正在编辑模板配置…</span>}
+      <div className="nav">
+        <span className="nav-brand">函证制函工具</span>
+        <a className={'nav-link' + (!isGenerate && !isConfig ? ' active' : '')} href="#/templates">模板列表</a>
+        <a className={'nav-link' + (isGenerate ? ' active' : '')} href="#/generate">Excel 制函</a>
+        {isConfig && <span className="nav-brand">正在编辑模板配置…</span>}
       </div>
       {/* 三页常驻挂载：切路由只切可见性，OO 实例与各页状态均保留 */}
       <div style={{ display: !isGenerate && !isConfig ? 'block' : 'none', height: '100%', overflowY: 'auto' }}>

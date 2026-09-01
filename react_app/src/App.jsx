@@ -131,7 +131,7 @@ export default function App() {
       <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '6px 16px', background: '#fff', borderBottom: '1px solid #e0e0e0' }}>
         <a
           href="#/templates"
-          style={{ color: '#534AB7', cursor: 'pointer', fontWeight: 600, textDecoration: 'none', whiteSpace: 'nowrap' }}
+          style={{ color: 'var(--primary)', cursor: 'pointer', fontWeight: 600, textDecoration: 'none', whiteSpace: 'nowrap' }}
         >
           ← 返回模板列表
         </a>
