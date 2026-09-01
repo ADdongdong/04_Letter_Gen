@@ -144,20 +144,14 @@ export default function App() {
       </div>
       <div className="layout">
         <div className="left">
-          <div className="toolbar">
-            {/* 状态栏内容由 updateStatus 直接操作 DOM（脱离 React 管理），避免 textContent 与 React diff 冲突 */}
-            <span id="oo-status" className="status" />
-          </div>
+          {/* 顶部状态条已按需求移除（updateStatus 调用仍保留：#oo-status 不存在时为安全 no-op） */}
           <div className="editor-area">
             {/* OnlyOfficeEditor 被 React.memo 包裹，props 不变时绝不重渲染 */}
             <OnlyOfficeEditor
               docKey={docKey}
               ref={editorRef}
               docUrl={docUrl}
-              onReady={() => {
-                setReady(true);
-                updateStatus('模板已加载 ✓ 点击右侧 Sheet 即可在光标处插入表格标注');
-              }}
+              onReady={() => setReady(true)}
             />
           </div>
         </div>

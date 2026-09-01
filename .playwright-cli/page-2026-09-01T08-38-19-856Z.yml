@@ -1,0 +1,26 @@
+- generic [ref=e2]:
+  - generic [ref=e3]:
+    - generic [ref=e4]: 函证制函工具
+    - link "模板列表" [ref=e5] [cursor=pointer]:
+      - /url: "#/templates"
+    - link "Excel 制函" [ref=e6] [cursor=pointer]:
+      - /url: "#/generate"
+    - generic [ref=e7]: 正在编辑模板配置…
+  - generic [ref=e9]:
+    - generic [ref=e10]:
+      - link "← 返回模板列表" [ref=e11] [cursor=pointer]:
+        - /url: "#/templates"
+      - strong [ref=e12]: ✏️ 编辑模板
+      - generic [ref=e13]: 上传 Word 与 Excel → 在左侧光标处插入 Sheet 占位段 → 保存模板配置
+    - generic [ref=e23]:
+      - heading "0. 上传 Word 模板（可选）" [level=2] [ref=e24]
+      - generic [ref=e25]: 📝 点击选择 Word 模板 (.docx)
+      - generic [ref=e26]: 未上传（使用内置默认模板）
+      - heading "1. 上传 Excel（多 Sheet）" [level=2] [ref=e27]
+      - generic [ref=e28]: 📊 点击选择 Excel (.xlsx)
+      - generic [ref=e29]: 尚未上传 Excel
+      - generic [ref=e30]:
+        - heading "✏️ 修改模板配置" [level=3] [ref=e35]
+        - textbox "模板名称（如：往来非标询证函）" [ref=e32]
+        - button "💾 保存修改" [ref=e36] [cursor=pointer]
+        - generic [ref=e34]: 正在编辑已有模板，保存后将覆盖该模板的 Word 与 Excel。保存时自动把左侧编辑器当前内容（含占位段标注）回写为模板 Word 文件；上传的 Excel 仅用于定义 Sheet 结构，可以没有数据。

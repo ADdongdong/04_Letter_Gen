@@ -86,13 +86,14 @@ export default function GeneratePage() {
       });
       const data = await res.json();
       if (data.error) { alert(data.error); setStatus('制函失败'); return; }
-      if (data.sheet_missing && data.sheet_missing.length) {
-        alert('以下 Sheet 在上传的 Excel 中不存在，对应位置未生成表格：\n' + data.sheet_missing.join('、'));
-      }
+      // sheet_missing 不再弹窗阻断：无数据/缺失的 Sheet 位置不生成表格，仅在成功提示尾部附带说明
+      const missingNote = (data.sheet_missing && data.sheet_missing.length)
+        ? `（未生成表格的 Sheet：${data.sheet_missing.join('、')}）`
+        : '';
       if (data.unmatched && data.unmatched.length) {
-        setStatus(`✓ 制函成功！共 ${data.count} 封函证（已跳过 ${data.unmatched.length} 封未匹配函证），ZIP 已开始下载`);
+        setStatus(`✓ 制函成功！共 ${data.count} 封函证（已跳过 ${data.unmatched.length} 封未匹配函证），ZIP 已开始下载${missingNote}`);
       } else {
-        setStatus(`✓ 制函成功！共 ${data.count} 封函证，ZIP 已开始下载`);
+        setStatus(`✓ 制函成功！共 ${data.count} 封函证，ZIP 已开始下载${missingNote}`);
       }
       // 隐藏 <a download> 触发下载（不开新标签，避免页面闪烁）
       const a = document.createElement('a');

@@ -400,6 +400,12 @@ def render_template(tpl_path, xlsx_path, bindings, out_path, group_key=None):
         sheet_name = binding['sheet_name']
         if sheet_name not in sheet_map:
             stats['not_found'].append(sheet_name)
+            # 该 Sheet 不在 Excel 中（无表头不参与分组 / Sheet 缺失 / 无数据）：
+            # 同样按出现次序删除其占位段，避免输出残留「【Sheet「xxx」表格将在此处展示】」提示词
+            placeholder_para_idx = _find_placeholder_para(doc, sheet_name, occurrence_count.get(sheet_name, 0))
+            if placeholder_para_idx is not None:
+                _remove_paragraph_at(doc, placeholder_para_idx)
+                occurrence_count[sheet_name] = occurrence_count.get(sheet_name, 0) + 1
             continue
         sheet = sheet_map[sheet_name]
         if not sheet['rows']:
@@ -444,6 +450,16 @@ def render_template(tpl_path, xlsx_path, bindings, out_path, group_key=None):
             'cols': len(sheet['header']),
             'rows': len(sheet['rows']) + 1,
         })
+
+    # 终扫兜底：保存前删除文档中所有残留占位段（宽松匹配「【Sheet」+「将在此处展示」），
+    # 覆盖占位文字被 OO 拆 run、手工书写等导致 _find_placeholder_para 精确匹配失败的场景；
+    # 成功注入表格的占位段在注入时已被删除，不会被误删
+    leftover = [i for i, p in enumerate(doc.paragraphs)
+                if _PLACEHOLDER_PREFIX in p.text and '将在此处展示' in p.text]
+    for i in reversed(leftover):  # 倒序删除，避免索引位移
+        _remove_paragraph_at(doc, i)
+    if leftover:
+        print(f"[RENDER] 终扫删除残留占位段 {len(leftover)} 处", flush=True)
 
     doc.save(out_path)
     stats['output_table_count'] = len(Document(out_path).tables)

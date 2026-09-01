@@ -82,8 +82,10 @@ const OnlyOfficeEditor = memo(forwardRef(({ docUrl, docKey, onReady }, ref) => {
         // 4. 创建新编辑器（同一 div id，唯一 document.key 由 App 层生成并传入）
         const currentDocKey = docKey;
         docKeyRef.current = currentDocKey;
-        // callbackUrl：OO forcesave 时 POST 当前文档到此（与 getTemplate 同路径，OO 容器经 host.docker.internal 访问）
-        const callbackUrl = docUrl.replace('/api/oo/getTemplate', '/api/oo/callback');
+        // callbackUrl 一律取 docUrl 的 origin + /api/oo/callback：
+        // 新增模式 docUrl=.../api/oo/getTemplate，编辑模式 docUrl=.../api/templates/<id>/word，
+        // 旧 replace 写法在编辑模式不生效导致 OO 回调 POST 到模板下载接口 405 →"无法保存"弹窗
+        const callbackUrl = new URL(docUrl).origin + '/api/oo/callback';
         const config = {
           document: {
             fileType: 'docx',
@@ -107,6 +109,9 @@ const OnlyOfficeEditor = memo(forwardRef(({ docUrl, docKey, onReady }, ref) => {
             onAppReady: () => { if (!cancelled && onReady) onReady('appReady'); },
             onDocumentReady: () => { if (!cancelled && onReady) onReady('documentReady'); },
             onError: (e) => { console.error('[OO] 错误:', e); },
+            // 接管警告事件（如 forcesave 回写失败时的"这份文件无法保存"）：
+            // 注册后由开发者处理，OO 不再弹默认警告窗；仅 console 记录便于排查
+            onWarning: (e) => { console.warn('[OO] 警告(已拦截不弹窗):', e); },
           },
         };
 
