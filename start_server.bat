@@ -17,14 +17,14 @@ echo ============================================
 echo.
 
 REM --- 1. 清理可能残留的端口进程 ---
-"E:\13_dingdian\03_demo\04_Letter_Gen\venv\Scripts\python.exe" "e:\13_dingdian\03_demo\04_Letter_Gen\code\render_verify\_clean_ports.py"
+"E:\13_dingdian\03_demo\04_Letter_Gen\venv\Scripts\python.exe" "e:\13_dingdian\03_demo\04_Letter_Gen\backend\python\_clean_ports.py"
 
 REM --- 2. 启动 Flask 5002 + 静态 8899 (Python 启动器) ---
-"E:\13_dingdian\03_demo\04_Letter_Gen\venv\Scripts\python.exe" "e:\13_dingdian\03_demo\04_Letter_Gen\code\render_verify\start_all.py"
+"E:\13_dingdian\03_demo\04_Letter_Gen\venv\Scripts\python.exe" "e:\13_dingdian\03_demo\04_Letter_Gen\backend\python\start_all.py"
 
 REM --- 3. 启动 React 前端 5173 (vite dev) ---
 echo [启动] React 前端 (vite dev) -> http://127.0.0.1:5173/
-start "" /B cmd /c "C:\nvm4w\nodejs\npm.cmd run dev --prefix e:\13_dingdian\03_demo\04_Letter_Gen\react_app"
+start "" /B cmd /c "C:\nvm4w\nodejs\npm.cmd run dev --prefix e:\13_dingdian\03_demo\04_Letter_Gen\frontend"
 
 echo.
 echo 全部服务已在后台启动，可直接打开 http://127.0.0.1:5173/ 测试

@@ -24,26 +24,12 @@ yarn-error.log*
 flask_*.log
 flask*.log
 
-# ===== 临时调试脚本（一次性/调试用）=====
-allow_private.py
-check_doc.py
-disable_jwt.py
-net_test.py
-oo_static_server.py
-test_download.py
-test_node_download.js
-test_upload.py
-relaunch.py
-code/render_verify/_dbg*.py
-code/render_verify/_dbg_out*.txt
-code/render_verify/_probe.py
-code/render_verify/selftest*.py
-
 # ===== 生成的输出文件 =====
-code/render_verify/outputs/
-code/render_verify/uploads/
-code/conversion_test/annotated_*.docx
-code/conversion_test/demo_template.docx
+backend/python/outputs/
+backend/python/uploads/
+backend/static-docs/annotated_*.docx
+backend/static-docs/demo_template.docx
+.playwright-cli/
 
 # ===== 系统文件 =====
 .DS_Store

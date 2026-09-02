@@ -26,7 +26,7 @@ OUTPUT_DIR = os.path.join(BASE_DIR, 'outputs')
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-DEFAULT_TPL = os.path.join(BASE_DIR, '..', 'conversion_test', 'demo_template.docx')
+DEFAULT_TPL = os.path.join(BASE_DIR, '..', 'static-docs', 'demo_template.docx')
 # 用户上传的 Word 模板（覆盖内置默认模板）
 TEMPLATE_UPLOAD_DIR = os.path.join(UPLOAD_DIR, 'templates')
 os.makedirs(TEMPLATE_UPLOAD_DIR, exist_ok=True)
@@ -242,7 +242,7 @@ def bind_annotate():
     try:
         annotate_bindings(tpl, bindings, out_path, excel_path=excel_path, sheet_count=sheet_count)
         # 复制到静态目录 8899，便于 OnlyOffice 通过 http 加载
-        static_dir = os.path.join(BASE_DIR, '..', 'conversion_test')
+        static_dir = os.path.join(BASE_DIR, '..', 'static-docs')
         static_name = f'annotated_{uid}.docx'
         shutil.copy(out_path, os.path.join(static_dir, static_name))
         return jsonify({
@@ -669,7 +669,7 @@ def oo_force_save():
 
 # ============ OnlyOffice 静态托管（模板/标注 docx）============
 # 前端 OnlyOffice 通过 /static-docx/<file> 加载模板，Vite 代理到本路由（本地同源）。
-STATIC_DOCX_DIR = os.path.join(BASE_DIR, '..', 'conversion_test')
+STATIC_DOCX_DIR = os.path.join(BASE_DIR, '..', 'static-docs')
 
 @app.route('/static-docx/<fname>')
 def static_docx(fname):

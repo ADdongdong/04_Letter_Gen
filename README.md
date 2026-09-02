@@ -1,53 +1,52 @@
 # 西点函证系统——制函功能优化项目
 
-本目录存放**制函功能优化**的资料与验证代码，按「数据 / 需求 / 代码」三层管理。
+前后端分离结构：唯一前端（React + Vite），多后端语言并置（现有 Python 后端，预留 Java 后端目录）。
 
 ## 目录结构
 
 ```
-04_制函优化/
-├── data/                        # 📁 数据
-│   ├── 截图/                    #   系统截图（制函管理、模板编辑器等 9 张）
-│   ├── 模板/                    #   函证 Word 模板（可放往来函证模板等）
-│   ├── 样例/                    #   示例 Excel / 转换样例
-│   └── 产物/                    #   渲染/转换测试生成的 docx/xlsx
-├── docs/                        # 📄 需求与方案文档
-│   ├── 西点函证系统_制函功能现状说明.md      # 制函现状梳理（v1.1）
-│   ├── 西点函证系统_制函功能优化方案_PRD草案.md # 优化 PRD（v0.3）
-│   ├── M2_技术原型验证方案.md              # M2 技术验证方案
-│   └── 转换测试_template_from_docx2markdown.md
-├── code/                        # 💻 代码
-│   ├── render_verify/           #   制函渲染验证服务（Flask Web）
-│   └── conversion_test/         #   docx→md 转换测试脚本
-├── 启动制函验证服务.bat          # 🚀 一键启动渲染验证服务
-├── 停止制函验证服务.bat          # 🛑 一键停止渲染验证服务
+04_Letter_Gen/
+├── backend/
+│   ├── python/                  # 🐍 Python 后端（Flask 5002：/api/* 接口 + 渲染引擎）
+│   │   ├── app.py               #   Flask 主服务
+│   │   ├── render_engine.py     #   渲染引擎（python-docx + openpyxl，占位段替换/表格注入）
+│   │   ├── start_all.py         #   启动器（Flask 5002 + 静态托管 8899）
+│   │   ├── _clean_ports.py      #   端口清理
+│   │   ├── data/                #   函证编号登记数据（letters_registry.json）
+│   │   ├── templates_store/     #   模板配置存储（word + excel）
+│   │   ├── uploads/             #   上传临时目录（生成）
+│   │   └── outputs/             #   渲染输出目录（生成）
+│   ├── static-docs/             # 📄 静态托管源（8899，与后端语言无关）
+│   └── java/                    # ☕ Java 版后端（预留空目录，待开发）
+├── frontend/                    # ⚛️ 唯一前端（React + Vite 5173，Python/Java 后端共用）
+│   └── src/                     #   App / ListPage / GeneratePage / RightPanel / OnlyOfficeEditor
+├── onlyoffice-plugin/           # 🔌 click2insert 插件源码（部署到 OO 容器 sdkjs-plugins/）
+├── docs/                        # 📄 需求文档 + design.md（视觉规范）
+├── data/                        # 📁 样例 / 产物 / 截图
+├── design-plans/                # 🎨 UI 审查报告
+├── start_server.bat             # 🚀 一键启动（5002 + 5173 + 8899）
+├── stop_server.bat              # 🛑 一键停止
 └── README.md                    # 本说明
 ```
 
 ## 快速使用
 
-### 启动制函渲染验证服务（可视化测试「Excel 直填 → 动态生成表格」）
+### 启动全套服务
 
-双击 **`启动制函验证服务.bat`**，浏览器打开 **`http://127.0.0.1:5002`**。
+双击 **`start_server.bat`**（自动清理端口残留 → 启动 Flask 5002 + 静态 8899 → 启动 vite 5173）。
 
-界面操作：
-1. 上传 Word 模板（.docx，可放 `data/模板/`）
-2. 上传 Excel（.xlsx，多 Sheet，可放 `data/样例/`）
-3. 添加绑定：选 Sheet + 选插入位置
-4. 点「渲染」→ 下载结果 docx → 用 Word 打开查看
+- 最新版界面：**http://127.0.0.1:5173/**（模板列表 / 模板配置 / Excel 制函三页）
+- Flask API：http://127.0.0.1:5002/
+- 静态托管：http://127.0.0.1:8899/
+
+主流程：上传 Word 模板与 Excel（多 Sheet）→ 在 OnlyOffice 编辑器光标处插入 Sheet 占位标注 → 保存模板配置 → Excel 批量制函（按单位组合逐封渲染，打包 ZIP 下载）。
 
 ### 停止服务
 
-双击 **`停止制函验证服务.bat`**（或直接关闭启动服务的黑色窗口）。
-
-## 关键技术结论（摘要）
-
-- **方案方向**：双模式制函——现有 `Output` 函数模式保留，新增「Excel 直填」模式（模板放占位锚点，按 Excel Sheet 动态生成表格）。
-- **制函渲染**：后端已用 **Poi-tl** 动态建表（`WordManage.execTable`），验证服务用 Python（python-docx）验证了等价能力：列数=Sheet列数、表头/数据正确、空 Sheet 跳过、总宽锁定文本宽。
-- **模板引擎**：统一 OnlyOffice（编辑 + 绑定 + 预览），取消 Markdown 方案（docx→md 对宽表/复杂表格失真）。
-- **OnlyOffice**：远程部署（`113.201.2.61:14002/onlyoffice/`），文档隔离靠独立 document key。
+双击 **`stop_server.bat`**。
 
 ## 环境
 
-- **Python**：项目 venv `E:\13_dingdian\03_demo\04_Letter_Gen\venv\Scripts\python.exe`（Python 3.14，已装 flask/docx/openpyxl）
-- **node**：`C:\nvm4w\nodejs`（node v24.18.0，已加入用户 PATH，重启终端生效）
+- **Python**：项目 venv `E:\13_dingdian\03_demo\04_Letter_Gen\venv\Scripts\python.exe`（已装 flask/docx/openpyxl）
+- **node**：`C:\nvm4w\nodejs`（node v24.18.0）
+- **OnlyOffice**：本地 Docker 容器 `onlyoffice`（8.2-ready 定制镜像，8080 映射；vite 代理 /onlyoffice → 8080）

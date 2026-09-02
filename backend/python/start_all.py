@@ -8,9 +8,8 @@ import os, sys, subprocess, threading, time, io, urllib.request, socket
 
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
-ROOT = r'e:\13_dingdian\03_demo\04_Letter_Gen'
-RV_DIR = os.path.join(ROOT, 'code', 'render_verify')
-CONV_DIR = os.path.join(ROOT, 'code', 'conversion_test')
+RV_DIR = os.path.dirname(os.path.abspath(__file__))                # backend/python（本文件所在目录）
+CONV_DIR = os.path.join(os.path.dirname(RV_DIR), 'static-docs')    # backend/static-docs
 PYTHON = sys.executable  # 当前解释器
 
 RUNNING = []
@@ -49,7 +48,7 @@ def start_flask():
         creationflags=subprocess.CREATE_NO_WINDOW if hasattr(subprocess, 'CREATE_NO_WINDOW') else 0,
     )
     RUNNING.append(p)
-    print(f"[Flask5002] 已启动 (PID {p.pid}) -> http://127.0.0.1:5002/demo  (日志: code/render_verify/flask_oo.log)")
+    print(f"[Flask5002] 已启动 (PID {p.pid}) -> http://127.0.0.1:5002/demo  (日志: backend/python/flask_oo.log)")
 
 def verify():
     time.sleep(3)
