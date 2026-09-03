@@ -1,7 +1,7 @@
 # 制函工具设计规范（design.md）
 
-> 版本 v1.0（2026-09-01）。所有前端界面开发必须遵循本规范；新增界面元素必须引用 `var(--token)`，禁止硬编码色值。
-> 样式表：`react_app/src/styles.css`（唯一全局样式表，token 定义于 `:root`）。
+> 版本 v1.1（2026-09-02）。所有前端界面开发必须遵循本规范；新增界面元素必须引用 `var(--token)`，禁止硬编码色值。
+> 样式表：`frontend/src/styles.css`（唯一全局样式表，token 定义于 `:root`）。
 
 ## 1. 色板
 
@@ -18,7 +18,7 @@
 ### 语义色
 | Token | 值 | 用途 |
 |-------|-----|------|
-| `--success` / `--success-bg` | `#2e7d32` / `#e8f5e9` | 成功（.btn.primary 主操作、Sheet 已插入） |
+| `--success` / `--success-bg` | `#2e7d32` / `#e8f5e9` | 成功（Sheet 已插入等状态标识，**不用于按钮**） |
 | `--danger` / `--danger-hover` | `#d9534f` / `#c9302c` | 危险（.btn.danger 删除） |
 | `--warn` | `#c62828` | 警示红（.status-alert、.warn-red、未匹配提醒）——**全站唯一警示红** |
 
@@ -48,20 +48,28 @@
 | Token/约定 | 值 |
 |-----------|-----|
 | 卡片圆角 | 10px，边框 1px `--border`，投影 `--shadow-card` |
-| 控件圆角（按钮/info/file-box） | 6px |
+| 按钮圆角 | 6px |
+| 输入控件圆角（text/number/select） | 8px |
+| info/file-box 圆角 | 6px |
 | 列表项圆角 | 5px |
 | badge 胶囊 | 10px |
-| 过渡 | `transition: background 0.15s`（按钮/导航/列表项/上传框统一） |
+| 过渡 | `transition: background 0.15s`（按钮/导航/列表项/上传框统一）；输入控件 `border-color 0.15s, box-shadow 0.15s` |
 
 间距档：**8 / 12 / 16px**（卡片内区块 12px、卡片间距 12px、页面容器 padding 16px）。
 
 ## 4. 组件约定
 
 ### 按钮（.btn）
-- 默认（次级操作）：`--primary` 底白字，hover `--primary-hover`
-- `.btn.primary`（主操作，绿）：`--success` 底，hover #256628——**每屏仅一个主操作**
-- `.btn.danger`（危险，红）：`--danger` 底白字——删除类操作必须用此变体，禁止默认紫/蓝底+红字
+- 默认与 `.btn.primary`（主操作）：**统一主题蓝**——`--primary` 底白字，hover `--primary-hover`，active `--primary-active`（v1.1 起主操作不再使用绿色）
+- `.btn.danger`（危险，红）：`--danger` 底白字——删除类操作必须用此变体，禁止默认蓝底+红字
 - 统一 6px 圆角、0.15s 过渡；禁用态 opacity 0.5
+- 按钮文案**不使用 emoji 前缀**，纯文字
+
+### 输入控件（input[type=text/number]、select）
+- 白底 `--card-bg`、1px `--border` 细边、8px 圆角、padding 8px 10px、字号 13px
+- hover：边框加深（#c9d2e3）；focus：边框 `--primary` + `box-shadow: 0 0 0 3px var(--primary-bg)` 蓝色光晕环（立体感）
+- disabled：灰底 `--bg` + not-allowed
+- 全局元素选择器定义于 styles.css，新控件自动继承，勿再写内联边框/圆角
 
 ### 卡片（.card）
 白底、1px `--border` 边框、10px 圆角、`--shadow-card` 投影、16px 内边距。页面容器用 `.page`（max-width 760）。
@@ -83,6 +91,6 @@
 
 1. 新增界面元素**必须**引用 `var(--token)`，禁止硬编码色值；
 2. 换肤/调色只修改 styles.css `:root` 变量；
-3. 每屏主操作（绿色 .btn.primary）唯一；删除必须 `.btn.danger`；
+3. 主操作按钮统一主题蓝 `.btn.primary`（不使用绿色/emoji 图标）；删除必须 `.btn.danger`；
 4. 新页面容器用 `.page`，内容块用 `.card`，状态反馈用 `.status-line`，警示用 `.warn-red`；
 5. OnlyOffice iframe 内部样式独立，不受本规范影响，也不得向其注入样式。

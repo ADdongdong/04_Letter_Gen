@@ -26,6 +26,8 @@ export default function App() {
     return h.startsWith('#/config') && m ? m[1] : null;
   });
   const [editingName, setEditingName] = useState('');  // 编辑中模板名（标题展示，从配置清单查询）
+  const [editingStyle, setEditingStyle] = useState(null);  // 编辑中模板的表格样式（回显到配置面板）
+  const [templateSheets, setTemplateSheets] = useState([]);  // 编辑中模板的 Sheet 名单（列宽按 Sheet 配置用）
   // 新增模式：wordLoaded=false 时 OO 显示空白占位（不加载残留的 current.docx）；上传 Word 后才加载
   const [wordLoaded, setWordLoaded] = useState(!!editingId);
   // docUrl：修改模式指向模板配置的 word；新增模式未上传 Word 前为 null（OO 空态占位）
@@ -85,6 +87,17 @@ export default function App() {
   // 列表页点【修改】→ hash=#/config?id=x（editingId=x，OO 以新 docKey 重载该模板 word）
   // 与当前 editingId 相同则不做任何操作（避免 OO 无谓重建）
   useEffect(() => {
+    const loadTemplateMeta = (id) => {
+      fetch('/api/templates')
+        .then(r => r.json())
+        .then(d => {
+          const t = (d.templates || []).find(x => x.id === id);
+          setEditingName(t ? t.name : '');
+          setEditingStyle(t && t.style ? t.style : null);
+          setTemplateSheets(t && Array.isArray(t.sheets) ? t.sheets : []);
+        })
+        .catch(() => {});
+    };
     const sync = () => {
       const h = window.location.hash || '';
       if (!h.startsWith('#/config')) return;
@@ -102,20 +115,19 @@ export default function App() {
         body: JSON.stringify({ key: nextKey }),
       }).catch(() => {});
       setDocKey(nextKey);
-      // 查询编辑中模板的名称（标题展示）
+      // 查询编辑中模板的名称（标题展示）、表格样式与 Sheet 名单（配置面板回显）
       if (newId) {
-        fetch('/api/templates')
-          .then(r => r.json())
-          .then(d => {
-            const t = (d.templates || []).find(x => x.id === newId);
-            setEditingName(t ? t.name : '');
-          })
-          .catch(() => {});
+        loadTemplateMeta(newId);
       } else {
         setEditingName('');
+        setEditingStyle(null);
+        setTemplateSheets([]);
       }
     };
     sync();
+    // 直链进入编辑模式（刷新/直达 URL）时 editingId 初始已等于目标，sync 会跳过——
+    // 但名称/表格样式/Sheet 名单元数据尚未查询，这里补一次（不触发 OO 重载）
+    if (editingRef.current) loadTemplateMeta(editingRef.current);
     window.addEventListener('hashchange', sync);
     return () => window.removeEventListener('hashchange', sync);
   }, []);
@@ -165,6 +177,8 @@ export default function App() {
           onTemplateUploaded={handleTemplateUploaded}
           editingId={editingId}
           editingName={editingName}
+          templateStyle={editingStyle}
+          templateSheets={templateSheets}
           onTemplateSaved={onTemplateSaved}
         />
       </div>

@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import SelectField from './SelectField.jsx';
 
 /**
  * 制函页（#/generate）：下拉选择模板配置 → 上传 Excel → 一键制函出 ZIP。
@@ -16,16 +17,24 @@ export default function GeneratePage() {
   const [generating, setGenerating] = useState(false);
   const generatingRef = useRef(false);
 
-  // 加载模板配置清单
-  useEffect(() => {
+  // 加载模板配置清单；常驻挂载：切到本页（#/generate）时自动刷新（配置页新增/修改模板后数据最新）
+  const loadTemplates = useCallback(() => {
     fetch('/api/templates')
       .then(r => r.json())
       .then(d => setTemplates(d.templates || []))
-      .catch(() => setStatus('模板列表加载失败，请刷新重试'));
+      .catch(() => {});
   }, []);
 
-  const onPick = (e) => {
-    const id = e.target.value;
+  useEffect(() => {
+    loadTemplates();
+    const onHash = () => {
+      if ((window.location.hash || '').startsWith('#/generate')) loadTemplates();
+    };
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
+  }, [loadTemplates]);
+
+  const onPick = (id) => {
     setTplId(id);
     const t = templates.find(x => x.id === id);
     if (t) {
@@ -119,12 +128,15 @@ export default function GeneratePage() {
 
       <div className="card">
         <h3>1. 选择制函模板</h3>
-        <select value={tplId} onChange={onPick} style={{ width: '100%', padding: '8px', boxSizing: 'border-box' }}>
-          <option value="">— 请选择模板 —</option>
-          {templates.map(t => (
-            <option key={t.id} value={t.id}>{t.name}</option>
-          ))}
-        </select>
+        <SelectField
+          value={tplId}
+          onChange={onPick}
+          placeholder="— 请选择模板 —"
+          options={[
+            { value: '', label: '— 请选择模板 —' },
+            ...templates.map(t => ({ value: t.id, label: t.name })),
+          ]}
+        />
         {tplId && (
           <div className="hint" style={{ marginTop: '8px' }}>
             模板包含 Sheet：{(templates.find(x => x.id === tplId)?.sheets || []).join('、') || '（无）'}
@@ -187,7 +199,7 @@ export default function GeneratePage() {
           disabled={!tplId || !excelPath || generating || allUnmatched}
           style={{ opacity: !tplId || !excelPath || allUnmatched ? 0.5 : 1, padding: '10px 24px' }}
         >
-          {generating ? '⏳ 制函中...' : `🚀 制函${matchResults.length > 0 ? `（${matchResults.filter(m => m.matched).length} 封）` : ''}`}
+          {generating ? '制函中...' : `制函${matchResults.length > 0 ? `（${matchResults.filter(m => m.matched).length} 封）` : ''}`}
         </button>
         {allUnmatched && (
           <div className="warn-red" style={{ marginTop: '8px', fontSize: '13px' }}>

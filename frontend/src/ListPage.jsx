@@ -42,7 +42,7 @@ export default function ListPage() {
           onClick={() => { window.location.hash = '#/config'; }}
           style={{ padding: '8px 20px' }}
         >
-          ＋ 新增模板
+          新增模板
         </button>
       </div>
 
@@ -52,7 +52,7 @@ export default function ListPage() {
             <div style={{ fontSize: '32px', marginBottom: '8px' }}>📄</div>
             还没有模板配置
             <div style={{ marginTop: '8px', fontSize: '13px' }}>
-              点击右上角「＋ 新增模板」上传 Word 模板并标注 Sheet 插入位置
+              点击右上角「新增模板」上传 Word 模板并标注 Sheet 插入位置
             </div>
           </div>
         </div>

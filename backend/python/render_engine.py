@@ -8,11 +8,132 @@
 - 数据 = Sheet 其余行
 - 表格总宽锁定为模板文本宽度
 """
-import io, os, re
+import io, os, re, unicodedata
+from typing import TypedDict
 from docx import Document
 from docx.shared import Pt, Cm, Emu
 from docx.oxml.ns import qn
+from docx.oxml import OxmlElement
+from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.enum.table import WD_CELL_VERTICAL_ALIGNMENT
 from openpyxl import load_workbook
+
+
+# ===== 表格样式配置（模板配置页可改，缺省逐字段回落默认值=原硬编码行为）=====
+class TableStyle(TypedDict, total=False):
+    font_size: float    # 磅
+    font_name: str      # 空=继承模板 Normal 字体
+    h_align: str        # center | left | right
+    v_align: str        # top | center
+    row_height_mode: str  # auto | atLeast（最小值，内容多自动加高不截断）
+    row_height_pt: float  # atLeast 时的最小行高（磅）
+    col_widths_mode: str  # equal（均分）| auto（按内容自适应）| ratio（按 Sheet 自定义比例）
+    col_widths: dict     # ratio 模式：{'Sheet名': '2:1:1'}；未配置的 Sheet 均分
+    col_widths_ratio: str  # [兼容旧字段] 全局比例串，col_widths 缺失时回落生效
+
+
+DEFAULT_TABLE_STYLE: TableStyle = {
+    'font_size': 10,
+    'font_name': '',
+    'h_align': 'center',
+    'v_align': 'top',
+    'row_height_mode': 'auto',
+    'row_height_pt': 20,
+    'col_widths_mode': 'equal',
+    'col_widths': {},
+    'col_widths_ratio': '',
+}
+
+_H_ALIGN_MAP = {
+    'left': WD_ALIGN_PARAGRAPH.LEFT,
+    'center': WD_ALIGN_PARAGRAPH.CENTER,
+    'right': WD_ALIGN_PARAGRAPH.RIGHT,
+}
+_V_ALIGN_MAP = {
+    'top': WD_CELL_VERTICAL_ALIGNMENT.TOP,
+    'center': WD_CELL_VERTICAL_ALIGNMENT.CENTER,
+}
+
+
+def _resolve_style(style) -> TableStyle:
+    """用户样式与默认值合并：逐字段类型/枚举校验，非法值回落默认（防脏数据）"""
+    s: TableStyle = dict(DEFAULT_TABLE_STYLE)
+    if not isinstance(style, dict):
+        return s
+    try:
+        v = style.get('font_size')
+        if v is not None and 5 <= float(v) <= 72:
+            s['font_size'] = float(v)
+    except (TypeError, ValueError):
+        pass
+    v = style.get('font_name')
+    if isinstance(v, str):
+        s['font_name'] = v.strip()
+    v = style.get('h_align')
+    if v in _H_ALIGN_MAP:
+        s['h_align'] = v
+    v = style.get('v_align')
+    if v in _V_ALIGN_MAP:
+        s['v_align'] = v
+    v = style.get('row_height_mode')
+    if v in ('auto', 'atLeast'):
+        s['row_height_mode'] = v
+    try:
+        v = style.get('row_height_pt')
+        if v is not None and 5 <= float(v) <= 200:
+            s['row_height_pt'] = float(v)
+    except (TypeError, ValueError):
+        pass
+    v = style.get('col_widths_ratio')
+    if isinstance(v, str):
+        s['col_widths_ratio'] = v.strip()
+    v = style.get('col_widths_mode')
+    if v in ('equal', 'auto', 'ratio'):
+        s['col_widths_mode'] = v
+    v = style.get('col_widths')
+    if isinstance(v, dict):
+        s['col_widths'] = {str(k): str(val) for k, val in v.items()}
+    return s
+
+
+def _parse_col_ratio(ratio_str: str, ncols: int):
+    """'2:1:1' -> [2.0,1.0,1.0]；为空/格式非法/列数不匹配返回 None（回落均分）"""
+    if not ratio_str:
+        return None
+    try:
+        parts = [float(x) for x in str(ratio_str).split(':') if x.strip()]
+    except ValueError:
+        return None
+    if len(parts) != ncols or sum(parts) <= 0 or any(p < 0 for p in parts):
+        return None
+    return parts
+
+
+def _char_w(ch):
+    """单字符显示宽度：CJK/全角按 2，其余按 1"""
+    return 2 if unicodedata.east_asian_width(ch) in ('W', 'F') else 1
+
+
+def _str_w(s):
+    """字符串显示宽度（CJK 加权）"""
+    return sum(_char_w(c) for c in str(s))
+
+
+def _col_weights_auto(sheet):
+    """按内容自适应列宽权重：每列 = max(表头宽, 该列数据最大宽)，中文按 2 倍宽，下限 1。
+    列数为 0 返回 None（回落均分）。"""
+    header = sheet.get('header') or []
+    ncols = len(header)
+    if ncols == 0:
+        return None
+    weights = [_str_w(header[j]) for j in range(ncols)]
+    for row in sheet.get('rows') or []:
+        for j in range(ncols):
+            v = row[j] if j < len(row) else ''
+            w = _str_w(v)
+            if w > weights[j]:
+                weights[j] = w
+    return [max(w, 1) for w in weights]
 
 
 def get_text_width(doc):
@@ -132,14 +253,25 @@ def read_excel_grouped(xlsx_path):
     return {'sheets': sheet_order, 'groups': groups, 'empty_cells': empty_cells, 'virtual_sheets': virtual_sheets}
 
 
-def _set_cell_text(cell, text, bold=False, size=10, align='center'):
-    """填充单元格文本并设置基本样式"""
+def _set_cell_text(cell, text, bold=False, size=10, align='center', font_name='', v_align=None):
+    """填充单元格文本并设置样式：水平对齐/字号/加粗/字体（中西文双设置）/垂直对齐"""
     cell.text = ''
     p = cell.paragraphs[0]
-    p.alignment = 1  # center
+    p.alignment = _H_ALIGN_MAP.get(align, WD_ALIGN_PARAGRAPH.CENTER)
     run = p.add_run(text)
     run.bold = bold
     run.font.size = Pt(size)
+    if font_name:
+        # 中文字体必须同时设置 rFonts@eastAsia，否则 run.font.name 只对西文生效
+        run.font.name = font_name
+        rpr = run._element.get_or_add_rPr()
+        rfonts = rpr.find(qn('w:rFonts'))
+        if rfonts is None:
+            rfonts = OxmlElement('w:rFonts')
+            rpr.append(rfonts)
+        rfonts.set(qn('w:eastAsia'), font_name)
+    if v_align is not None:
+        cell.vertical_alignment = v_align
 
 
 def _table_width_twips(doc):
@@ -147,7 +279,18 @@ def _table_width_twips(doc):
     return int(get_text_width(doc) / 914400 * 1440)
 
 
-def inject_sheet_table(doc, sheet, anchor_mode='end', anchor_idx=None, col_widths_ratio=None):
+def _set_row_min_height(row, pt: float):
+    """设置行最小高度（w:trHeight hRule=atLeast：内容少时保持设定值，内容多自动加高不截断）"""
+    trPr = row._tr.get_or_add_trPr()
+    tr_height = trPr.find(qn('w:trHeight'))
+    if tr_height is None:
+        tr_height = OxmlElement('w:trHeight')
+        trPr.append(tr_height)
+    tr_height.set(qn('w:val'), str(int(pt * 20)))  # 磅 -> twips
+    tr_height.set(qn('w:hRule'), 'atLeast')
+
+
+def inject_sheet_table(doc, sheet, anchor_mode='end', anchor_idx=None, col_widths_ratio=None, style=None):
     """
     在 doc 中注入一个 Sheet 表格。
 
@@ -156,41 +299,64 @@ def inject_sheet_table(doc, sheet, anchor_mode='end', anchor_idx=None, col_width
         sheet: read_excel_sheets 返回的单个 sheet dict
         anchor_mode: 'end'(文档末尾) / 'after_table'(指定表格后) / 'after_para'(指定段落后)
         anchor_idx: anchor_mode 对应的索引（表格序号/段落序号）
-        col_widths_ratio: 可选列宽比例列表，None 则均分
+        col_widths_ratio: 可选列宽比例列表，None 则按 style 配置或均分
+        style: 表格样式 dict（None/_resolve_style 回落 DEFAULT_TABLE_STYLE）
 
     返回：注入的表格
     """
+    st = _resolve_style(style)
     header = sheet['header']
     rows = sheet['rows']
     ncols = len(header)
+    if ncols == 0:
+        # 分组 Sheet 去掉前两列后无数据列（或空 Sheet 结构）：无可注入内容，跳过
+        return None
 
     # 创建表格（1 行表头）
     table = doc.add_table(rows=1, cols=ncols)
     table.style = 'Table Grid'
 
-    # 计算列宽（twips），默认均分
+    # 计算列宽（twips）：调用方显式比例 > 三档模式（equal 均分 / auto 内容自适应 / ratio 按 Sheet 比例）
+    # > 旧全局串兼容（存量模板） > 均分
+    ratio = col_widths_ratio
+    if not ratio and st['col_widths_mode'] == 'auto':
+        ratio = _col_weights_auto(sheet)
+    if not ratio and st['col_widths_mode'] == 'ratio':
+        ratio = _parse_col_ratio(st['col_widths'].get(sheet['name'], ''), ncols)
+    if not ratio:
+        # 兼容存量模板：旧全局 col_widths_ratio 非空时仍生效
+        ratio = _parse_col_ratio(st['col_widths_ratio'], ncols)
     total_twips = _table_width_twips(doc)
-    if col_widths_ratio and len(col_widths_ratio) == ncols and sum(col_widths_ratio) > 0:
-        twips = [int(total_twips * r / sum(col_widths_ratio)) for r in col_widths_ratio]
+    if ratio and len(ratio) == ncols and sum(ratio) > 0:
+        twips = [int(total_twips * r / sum(ratio)) for r in ratio]
     else:
         twips = [total_twips // ncols] * ncols
 
-    # 表头行
+    v_align = _V_ALIGN_MAP.get(st['v_align'])
+
+    # 表头行（表头固定加粗；字号/对齐/字体随样式配置）
     for j, h in enumerate(header):
-        _set_cell_text(table.rows[0].cells[j], h, bold=True, size=10)
+        _set_cell_text(table.rows[0].cells[j], h, bold=True, size=st['font_size'],
+                       align=st['h_align'], font_name=st['font_name'], v_align=v_align)
 
     # 数据行
     for row_data in rows:
         cells = table.add_row().cells
         for j in range(ncols):
             val = row_data[j] if j < len(row_data) else ''
-            _set_cell_text(cells[j], val, bold=False, size=10)
+            _set_cell_text(cells[j], val, bold=False, size=st['font_size'],
+                           align=st['h_align'], font_name=st['font_name'], v_align=v_align)
+
+    # 行高：最小值模式时对全部行设置 atLeast（内容多自动加高不截断）
+    if st['row_height_mode'] == 'atLeast':
+        for row in table.rows:
+            _set_row_min_height(row, st['row_height_pt'])
 
     # 设置列宽（每单元格 tcW）
     for row in table.rows:
         for j, cell in enumerate(row.cells):
             if j < ncols:
-                cell.width = Emu(int(get_text_width(doc) / ncols))
+                cell.width = Emu(int(twips[j] * 635))  # twips -> EMU（1 twip = 635 EMU）
                 _set_tc_width(cell, twips[j])
 
     # 处理锚点定位：python-docx add_table 默认加到末尾，需要移动到指定位置
@@ -347,7 +513,7 @@ def annotate_bindings(tpl_path, bindings, out_path, excel_path=None, sheet_count
 _PLACEHOLDER_PREFIX = '【Sheet'
 
 
-def render_template(tpl_path, xlsx_path, bindings, out_path, group_key=None):
+def render_template(tpl_path, xlsx_path, bindings, out_path, group_key=None, style=None):
     """
     渲染：读取模板，按绑定关系注入多个 Sheet 表格，保存结果。
 
@@ -365,6 +531,7 @@ def render_template(tpl_path, xlsx_path, bindings, out_path, group_key=None):
             按 read_excel_grouped 分组，仅渲染该组合的行；虚拟 sheet 的表头与数据
             均从第 3 列起（不含前两列分组列）；该组合在某个 Sheet 无行时跳过注入
             并删除其占位段。
+        style: 可选表格样式 dict（模板配置），None 时用 DEFAULT_TABLE_STYLE
 
     返回：统计信息
     """
@@ -428,6 +595,7 @@ def render_template(tpl_path, xlsx_path, bindings, out_path, group_key=None):
                 doc, sheet,
                 anchor_mode='after_para',
                 anchor_idx=placeholder_para_idx,
+                style=style,
             )
             # 删除占位符段落（表格已插入在其后，需重新定位）
             _remove_paragraph_at(doc, placeholder_para_idx)
@@ -441,9 +609,10 @@ def render_template(tpl_path, xlsx_path, bindings, out_path, group_key=None):
                     doc, sheet,
                     anchor_mode='after_para',
                     anchor_idx=anchor_idx,
+                    style=style,
                 )
             else:
-                table = inject_sheet_table(doc, sheet, anchor_mode='end')
+                table = inject_sheet_table(doc, sheet, anchor_mode='end', style=style)
 
         stats['injected'].append({
             'sheet': sheet_name,

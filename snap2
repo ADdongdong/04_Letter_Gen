@@ -1,0 +1,238 @@
+- generic [ref=e2]:
+  - generic [ref=e3]:
+    - generic [ref=e4]: 函证制函工具
+    - link "模板列表" [ref=e5] [cursor=pointer]:
+      - /url: "#/templates"
+    - link "Excel 制函" [ref=e6] [cursor=pointer]:
+      - /url: "#/generate"
+    - generic [ref=e7]: 正在编辑模板配置…
+  - generic [ref=e9]:
+    - generic [ref=e10]:
+      - link "← 返回模板列表" [ref=e11] [cursor=pointer]:
+        - /url: "#/templates"
+      - strong [ref=e12]: ✏️ 编辑模板
+      - generic [ref=e13]: 上传 Word 与 Excel → 在左侧光标处插入 Sheet 占位段 → 保存模板配置
+    - generic [ref=e14]:
+      - iframe [ref=e18]:
+        - application [ref=f3e1]:
+          - main [ref=f3e48]:
+            - generic [ref=f3e50]:
+              - generic [ref=f3e83]:
+                - menubar "快速访问工具栏" [ref=f3e88]:
+                  - button "保存 (Ctrl+S)" [ref=f3e90] [cursor=pointer]
+                  - button "打印文件 (Ctrl+P)" [ref=f3e93] [cursor=pointer]
+                  - button "撤消 (Ctrl+Z)" [disabled] [ref=f3e96]
+                  - button "重做 (Ctrl+Y)" [disabled] [ref=f3e99]
+                  - button "自定义快速访问工具栏" [ref=f3e103] [cursor=pointer]
+                - textbox [disabled] [ref=f3e106]: 银行询证函模板
+                - button "匿名用户" [ref=f3e109] [cursor=pointer]:
+                  - generic [ref=f3e110]: 匿
+              - toolbar [ref=f3e52]:
+                - generic [ref=f3e111]:
+                  - generic [ref=f3e112]:
+                    - tablist [ref=f3e114]:
+                      - listitem [ref=f3e115]:
+                        - tab "文件" [ref=f3e116]
+                      - listitem [ref=f3e117]:
+                        - tab "首页" [ref=f3e118]
+                      - listitem [ref=f3e119]:
+                        - tab "插入" [ref=f3e120]
+                      - listitem [ref=f3e121]:
+                        - tab "绘图" [ref=f3e122]
+                      - listitem [ref=f3e123]:
+                        - tab "布局" [ref=f3e124]
+                      - listitem [ref=f3e125]:
+                        - tab "参考" [ref=f3e126]
+                      - listitem [ref=f3e127]:
+                        - tab "协作" [ref=f3e128]
+                      - listitem [ref=f3e129]:
+                        - tab "保护" [ref=f3e130]
+                      - listitem [ref=f3e131]:
+                        - tab "视图" [ref=f3e132]
+                      - listitem [ref=f3e133]:
+                        - tab "插件" [ref=f3e134]
+                    - generic [ref=f3e138]:
+                      - button "编辑" [ref=f3e143] [cursor=pointer]:
+                        - generic [ref=f3e145]: 编辑
+                      - button "搜索 (Ctrl+F)" [ref=f3e150] [cursor=pointer]
+                  - tabpanel [ref=f3e152]:
+                    - generic [ref=f3e153]:
+                      - generic [ref=f3e154]:
+                        - button "复制 (Ctrl+C)" [disabled] [ref=f3e157]
+                        - button "粘贴 (Ctrl+V)" [ref=f3e161] [cursor=pointer]
+                      - generic [ref=f3e163]:
+                        - button "剪切 (Ctrl+X)" [disabled] [ref=f3e166]
+                        - button "复制样式 (Alt+Ctrl+C)" [ref=f3e170] [cursor=pointer]
+                    - tabpanel "首页" [ref=f3e174]:
+                      - generic [ref=f3e175]:
+                        - generic [ref=f3e176]:
+                          - generic [ref=f3e178]:
+                            - combobox "字体" [ref=f3e179]: Times New Roman
+                            - button [ref=f3e180] [cursor=pointer]
+                          - generic [ref=f3e183]:
+                            - combobox "字体大小" [ref=f3e184]: 小四
+                            - button [ref=f3e185] [cursor=pointer]
+                          - button "增加字体大小 (Ctrl+])" [ref=f3e188] [cursor=pointer]
+                          - button "减小字体大小 (Ctrl+[)" [ref=f3e191] [cursor=pointer]
+                          - button "更改大小写" [ref=f3e195] [cursor=pointer]
+                        - generic [ref=f3e199]:
+                          - button "粗体 (Ctrl+B)" [ref=f3e201] [cursor=pointer]
+                          - button "斜体 (Ctrl+I)" [ref=f3e204] [cursor=pointer]
+                          - button "下划线 (Ctrl+U)" [ref=f3e207] [cursor=pointer]
+                          - button "删除线" [ref=f3e210] [cursor=pointer]
+                          - button "上标" [ref=f3e213] [cursor=pointer]
+                          - button "下标" [ref=f3e216] [cursor=pointer]
+                          - generic [ref=f3e219]:
+                            - button "高亮色" [ref=f3e220] [cursor=pointer]
+                            - button "高亮色" [ref=f3e222] [cursor=pointer]
+                          - generic [ref=f3e226]:
+                            - button "字体颜色" [ref=f3e227] [cursor=pointer]
+                            - button "字体颜色" [ref=f3e229] [cursor=pointer]
+                          - button "清除样式" [ref=f3e233] [cursor=pointer]
+                      - generic [ref=f3e236]:
+                        - generic [ref=f3e237]:
+                          - generic [ref=f3e239]:
+                            - button "项目符号" [ref=f3e240] [cursor=pointer]
+                            - button "项目符号" [ref=f3e242] [cursor=pointer]
+                          - generic [ref=f3e246]:
+                            - button "编号" [ref=f3e247] [cursor=pointer]
+                            - button "编号" [ref=f3e249] [cursor=pointer]
+                          - button "多级列表" [ref=f3e254] [cursor=pointer]
+                          - button "减少缩进 (Ctrl+转移+M)" [ref=f3e259] [cursor=pointer]
+                          - button "增加缩进 (Ctrl+M)" [ref=f3e262] [cursor=pointer]
+                          - button "段落行距" [ref=f3e266] [cursor=pointer]
+                        - generic [ref=f3e270]:
+                          - button "左对齐 (Ctrl+L)" [ref=f3e272] [cursor=pointer]
+                          - button "居中对齐 (Ctrl+E)" [ref=f3e275] [cursor=pointer]
+                          - button "右对齐 (Ctrl+R)" [ref=f3e278] [cursor=pointer]
+                          - button "兩端對齊 (Ctrl+J)" [pressed] [ref=f3e281] [cursor=pointer]
+                          - generic [ref=f3e284]:
+                            - button "非打印字符 (Ctrl+转移+8)" [ref=f3e285] [cursor=pointer]
+                            - button "非打印字符 (Ctrl+转移+8)" [ref=f3e287] [cursor=pointer]
+                          - generic [ref=f3e291]:
+                            - button "阴影" [ref=f3e292] [cursor=pointer]
+                            - button "阴影" [ref=f3e294] [cursor=pointer]
+                      - generic [ref=f3e298]:
+                        - list [ref=f3e300]:
+                          - listitem "正文" [ref=f3e301] [cursor=pointer]
+                          - listitem "默认段落字体" [ref=f3e304] [cursor=pointer]
+                        - button [ref=f3e309] [cursor=pointer]
+                      - generic [ref=f3e312]:
+                        - button "替换 (Ctrl+H)" [ref=f3e315] [cursor=pointer]
+                        - button "全选 (Ctrl+A)" [ref=f3e319] [cursor=pointer]
+              - generic [ref=f3e54]:
+                - menubar "左侧菜单" [ref=f3e57]:
+                  - button "搜索" [ref=f3e58] [cursor=pointer]
+                  - button "批注 (Ctrl+转移+H)" [ref=f3e321] [cursor=pointer]
+                  - button "聊天 (Alt+Q)" [ref=f3e323] [cursor=pointer]
+                  - button "标题" [ref=f3e60] [cursor=pointer]
+                  - button "关于" [ref=f3e64] [cursor=pointer]
+                - generic [ref=f3e69]:
+                  - generic:
+                    - generic:
+                      - textbox [active]
+                - menubar "右侧菜单" [ref=f3e332]:
+                  - button "段落设置" [ref=f3e333] [cursor=pointer]
+                  - button "表格设置" [ref=f3e335]
+                  - button "图像设置" [ref=f3e337]
+                  - button "页眉和页脚设置" [ref=f3e339]
+                  - button "形状设置" [ref=f3e341]
+                  - button "图表设置" [ref=f3e343]
+                  - button "艺术字设置" [ref=f3e345]
+                  - button "邮件合并设置" [ref=f3e347]
+              - generic [ref=f3e349]:
+                - generic [ref=f3e351] [cursor=pointer]: 第1页共2页
+                - button "字数统计" [ref=f3e356] [cursor=pointer]: 字数统计
+                - generic [ref=f3e359]:
+                  - button "English – United States" [ref=f3e363] [cursor=pointer]: English – United States
+                  - button "设置文档语言" [ref=f3e367] [cursor=pointer]
+                  - button "拼写检查" [pressed] [ref=f3e370] [cursor=pointer]
+                  - generic [ref=f3e374]:
+                    - button "跟踪变化" [ref=f3e375] [cursor=pointer]
+                    - button "跟踪变化" [ref=f3e377] [cursor=pointer]
+                  - button "调整至页面大小" [ref=f3e381] [cursor=pointer]
+                  - button "调整至宽度大小" [ref=f3e383] [cursor=pointer]
+                  - button "缩小 (Ctrl+-)" [ref=f3e385] [cursor=pointer]
+                  - generic "縮放" [ref=f3e387]:
+                    - button "縮放100%" [ref=f3e388] [cursor=pointer]:
+                      - generic [ref=f3e389]: 縮放100%
+                  - button "放大 (Ctrl++)" [ref=f3e390] [cursor=pointer]
+          - img [ref=f3e81]
+          - img
+          - generic:
+            - img
+            - img
+            - img
+          - dialog [ref=f3e392]:
+            - generic [ref=f3e393]:
+              - generic [ref=f3e394]:
+                - generic [ref=f3e395]: 输入用于协作的名称
+                - textbox [ref=f3e398]
+                - generic [ref=f3e400]:
+                  - checkbox "不要再次询问我" [ref=f3e401]
+                  - generic [ref=f3e402]: 不要再次询问我
+              - generic [ref=f3e403]:
+                - button "确定" [ref=f3e404] [cursor=pointer]
+                - button "取消" [ref=f3e405] [cursor=pointer]
+          - iframe [ref=f3e406]:
+            
+      - generic [ref=e19]:
+        - heading "0. 上传 Word 模板（可选）" [level=2] [ref=e20]
+        - generic [ref=e21]: 📝 点击选择 Word 模板 (.docx)
+        - generic [ref=e22]: 未上传（使用内置默认模板）
+        - heading "1. 上传 Excel（多 Sheet）" [level=2] [ref=e23]
+        - generic [ref=e24]: 📊 点击选择 Excel (.xlsx)
+        - generic [ref=e25]: 尚未上传 Excel
+        - generic [ref=e26]:
+          - heading "✏️ 修改模板配置" [level=3] [ref=e27]
+          - textbox "模板名称（如：往来非标询证函）" [ref=e28]
+          - generic [ref=e29]:
+            - generic [ref=e30] [cursor=pointer]:
+              - generic [ref=e31]: 🎨 表格样式（高级，可选）
+              - generic [ref=e32]: ▲
+            - generic [ref=e35]:
+              - generic [ref=e36]:
+                - text: 字号（默认 10 磅）
+                - combobox "字号（默认 10 磅）" [ref=e37]:
+                  - option "9 磅"
+                  - option "10 磅" [selected]
+                  - option "10.5 磅"
+                  - option "11 磅"
+                  - option "12 磅"
+              - generic [ref=e38]:
+                - text: 字体（默认继承模板）
+                - combobox "字体（默认继承模板）" [ref=e39]:
+                  - option "继承模板" [selected]
+                  - option "宋体"
+                  - option "仿宋"
+                  - option "黑体"
+                  - option "楷体"
+                  - option "微软雅黑"
+                  - option "等线"
+                  - option "Arial"
+              - generic [ref=e40]:
+                - text: 水平对齐（默认居中）
+                - combobox "水平对齐（默认居中）" [ref=e41]:
+                  - option "居中" [selected]
+                  - option "左对齐"
+                  - option "右对齐"
+              - generic [ref=e42]:
+                - text: 垂直对齐（默认顶端）
+                - combobox "垂直对齐（默认顶端）" [ref=e43]:
+                  - option "顶端" [selected]
+                  - option "居中"
+              - generic [ref=e44]:
+                - text: 行高（默认自动）
+                - combobox "行高（默认自动）" [ref=e45]:
+                  - option "自动" [selected]
+                  - option "最小值"
+              - generic [ref=e46]:
+                - text: 行高磅数（自动时不生效）
+                - spinbutton "行高磅数（自动时不生效）" [disabled] [ref=e47]: "20"
+              - generic [ref=e48]:
+                - text: 列宽（默认均分）
+                - combobox "列宽（默认均分）" [ref=e49]:
+                  - option "均分" [selected]
+                  - option "自定义比例"
+          - button "💾 保存修改" [ref=e33] [cursor=pointer]
+          - generic [ref=e34]: 正在编辑已有模板，保存后将覆盖该模板的 Word 与 Excel。保存时自动把左侧编辑器当前内容（含占位段标注）回写为模板 Word 文件；上传的 Excel 仅用于定义 Sheet 结构，可以没有数据。

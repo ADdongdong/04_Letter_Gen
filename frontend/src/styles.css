@@ -79,10 +79,49 @@ body { font-family: "Microsoft YaHei", Arial, sans-serif; background: var(--bg);
 /* ===== 按钮（0.15s 过渡 + 统一圆角） ===== */
 .btn { background: var(--primary); color: #fff; border: none; padding: 8px 14px; border-radius: 6px; cursor: pointer; font-size: 13px; transition: background 0.15s; }
 .btn:hover { background: var(--primary-hover); }
-.btn.primary { background: var(--success); }
-.btn.primary:hover { background: #256628; }
+.btn:active { background: var(--primary-active); }
+.btn.primary { background: var(--primary); }
+.btn.primary:hover { background: var(--primary-hover); }
+.btn.primary:active { background: var(--primary-active); }
 .btn.danger { background: var(--danger); padding: 4px 10px; font-size: 12px; }
 .btn.danger:hover { background: var(--danger-hover); }
+
+/* ===== 输入控件统一（圆角矩形 + 细边 + focus 蓝环立体感；规范见 docs/design.md §4） ===== */
+input[type="text"], input[type="number"], select {
+  background: var(--card-bg); border: 1px solid var(--border); border-radius: 8px;
+  padding: 8px 10px; font-size: 13px; color: var(--text); font-family: inherit;
+  transition: border-color 0.15s, box-shadow 0.15s; outline: none;
+}
+input[type="text"]:hover, input[type="number"]:hover, select:hover { border-color: #c9d2e3; }
+input[type="text"]:focus, input[type="number"]:focus, select:focus {
+  border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-bg);
+}
+input:disabled, select:disabled { background: var(--bg); cursor: not-allowed; }
+
+/* ===== 自绘下拉（SelectField：替代原生 select，弹层贴合主题、无收起闪烁） ===== */
+.sfield-trigger {
+  display: flex; width: 100%; align-items: center; justify-content: space-between; gap: 6px;
+  background: var(--card-bg); border: 1px solid var(--border); border-radius: 8px;
+  padding: 8px 10px; font-size: 13px; color: var(--text); font-family: inherit;
+  cursor: pointer; text-align: left; transition: border-color 0.15s, box-shadow 0.15s; outline: none;
+}
+.sfield-trigger:hover { border-color: #c9d2e3; }
+.sfield-trigger:focus { border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-bg); }
+.sfield-trigger:disabled { background: var(--bg); cursor: not-allowed; }
+.sfield-arrow { color: var(--text-3); font-size: 11px; transition: transform 0.15s; flex: none; }
+.sfield-arrow.open { transform: rotate(180deg); }
+.sfield-menu {
+  position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 30;
+  background: var(--card-bg); border: 1px solid var(--border); border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(16, 24, 40, 0.12); padding: 4px;
+  max-height: 220px; overflow-y: auto;
+}
+.sfield-opt {
+  padding: 7px 10px; border-radius: 6px; font-size: 13px; color: var(--text);
+  cursor: pointer; transition: background 0.15s;
+}
+.sfield-opt:hover { background: var(--primary-bg); }
+.sfield-opt.active { color: var(--primary); font-weight: 600; background: var(--primary-bg-light); }
 
 /* ===== 页面公共类（模板列表页 / 制函页共用，收敛内联样式） ===== */
 

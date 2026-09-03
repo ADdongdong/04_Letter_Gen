@@ -17,6 +17,7 @@ from flask import Flask, request, render_template_string, jsonify, send_file, ur
 from render_engine import (
     read_excel_sheets, read_excel_grouped, extract_placeholder_bindings,
     render_template, get_text_width, _table_width_twips, extract_anchors, annotate_bindings,
+    DEFAULT_TABLE_STYLE, _resolve_style,
 )
 from docx import Document
 
@@ -387,16 +388,19 @@ def templates_list():
 
 @app.route('/api/templates/save', methods=['POST'])
 def templates_save():
-    """保存模板配置（id 空=新建）。前端已先 forceSave 回写 current.docx 并轮询确认后才调本接口。
-    body: {id?, name, excel_path}"""
+    """保存模板配置（id 空=新建，Excel 必填；id 非空=编辑已有，Excel 可选——缺省沿用该模板已存的 Excel）。
+    前端已先 forceSave 回写 current.docx 并轮询确认后才调本接口。
+    body: {id?, name, excel_path?, style?}"""
     data = request.get_json()
     name = (data.get('name') or '').strip()
     excel_path = data.get('excel_path')
     tid = data.get('id')
     if not name:
         return jsonify({'error': '请填写模板名称'}), 400
-    if not excel_path or not os.path.exists(excel_path):
-        return jsonify({'error': '请先上传 Excel'}), 400
+    if excel_path and not os.path.exists(excel_path):
+        return jsonify({'error': '上传的 Excel 不存在'}), 400
+    if not tid and not excel_path:
+        return jsonify({'error': '请先上传 Excel（用于定义 Sheet 结构，可以没有数据）'}), 400
 
     items = _load_templates_index()
     for it in items:
@@ -419,14 +423,23 @@ def templates_save():
     os.makedirs(tpl_dir, exist_ok=True)
     # current.docx 已由 forcesave 回写（前端轮询确认后才调本接口）
     shutil.copyfile(get_current_template(), os.path.join(tpl_dir, 'word.docx'))
-    shutil.copyfile(excel_path, os.path.join(tpl_dir, 'excel.xlsx'))
-    try:
-        item['sheets'] = [s['name'] for s in read_excel_sheets(excel_path)]
-    except Exception:
-        item['sheets'] = []
+    # Excel：编辑模式未重新上传时沿用该模板已存的 excel.xlsx 与 sheets（不覆盖）
+    if excel_path:
+        # 同一文件（盘符大小写差异用 samefile 判定）时跳过拷贝，避免 SameFileError
+        dst_excel = os.path.join(tpl_dir, 'excel.xlsx')
+        if not (os.path.exists(dst_excel) and os.path.samefile(excel_path, dst_excel)):
+            shutil.copyfile(excel_path, dst_excel)
+        try:
+            item['sheets'] = [s['name'] for s in read_excel_sheets(excel_path)]
+        except Exception:
+            item['sheets'] = []
+    # 表格样式（可选）：仅请求携带 style 字段时更新（旧前端不带 style 不会覆盖已有配置）；
+    # 经 _resolve_style 校验合并，脏字段回落默认值
+    if 'style' in data:
+        item['style'] = _resolve_style(data.get('style'))
     _save_templates_index(items)
     print(f"[TPL-SAVE] 模板配置已保存: id={tid} name={name} sheets={item['sheets']}", flush=True)
-    return jsonify({'id': tid, 'name': name, 'sheets': item['sheets']})
+    return jsonify({'id': tid, 'name': name, 'sheets': item['sheets'], 'style': item.get('style')})
 
 
 @app.route('/api/templates/<tid>', methods=['DELETE'])
@@ -515,7 +528,8 @@ def generate():
         for audit, confirm, letter_no in matched:
             safe_name = _safe_filename(f'{audit}-{confirm}')
             out_path = os.path.join(batch_dir, f'{safe_name}.docx')
-            stats = render_template(tpl_word, excel_path, bindings, out_path, group_key=(audit, confirm))
+            stats = render_template(tpl_word, excel_path, bindings, out_path, group_key=(audit, confirm),
+                                    style=item.get('style'))
             files.append({
                 'file': f'{safe_name}.docx',
                 'audit': audit,
