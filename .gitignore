@@ -31,6 +31,14 @@ backend/static-docs/annotated_*.docx
 backend/static-docs/demo_template.docx
 .playwright-cli/
 
+# ===== Java 后端 =====
+backend/java/target/
+backend/java/.mvn-tools/
+backend/java/uploads/
+backend/java/outputs/
+backend/java/templates_store/
+backend/java/java_out.log
+
 # ===== 系统文件 =====
 .DS_Store
 Thumbs.db

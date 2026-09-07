@@ -15,7 +15,11 @@
 │   │   ├── uploads/             #   上传临时目录（生成）
 │   │   └── outputs/             #   渲染输出目录（生成）
 │   ├── static-docs/             # 📄 静态托管源（8899，与后端语言无关）
-│   └── java/                    # ☕ Java 版后端（预留空目录，待开发）
+│   └── java/                    # ☕ Java 版后端（Spring Boot 3 + Apache POI，dev_java 分支，端口 5002）
+│       ├── pom.xml              #   Maven 构建（settings.xml 配阿里云镜像）
+│       ├── .mvn-tools/          #   内置 Maven 3.9.9（gitignore）
+│       ├── src/                 #   ApiController / RenderEngine / TemplateStore
+│       └── e2e_test.py          #   端到端测试脚本（venv python 运行）
 ├── frontend/                    # ⚛️ 唯一前端（React + Vite 5173，Python/Java 后端共用）
 │   └── src/                     #   App / ListPage / GeneratePage / RightPanel / OnlyOfficeEditor
 ├── onlyoffice-plugin/           # 🔌 click2insert 插件源码（部署到 OO 容器 sdkjs-plugins/）
@@ -51,6 +55,17 @@ venv\Scripts\python.exe stop_server.py
 ```
 
 （OnlyOffice 容器保留运行；如需停止：`docker stop onlyoffice`）
+
+### Java 后端（dev_java 分支，与 Python 后端互斥运行，共用前端与存储结构）
+
+```bash
+cd backend\java
+.mvn-tools\apache-maven-3.9.9\bin\mvn.cmd -s settings.xml package -DskipTests   # 构建
+java -jar target\lettergen-java.jar                                             # 运行（端口 5002）
+venv\..\..\venv\Scripts\python.exe e2e_test.py                                  # 端到端测试（25 项断言）
+```
+
+注意：Java 与 Python 后端同为 5002 端口，**同一时间只能运行一个**；templates_store 存储结构互通，切换后端无需改前端。
 
 ## 环境
 
