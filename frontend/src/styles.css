@@ -1,0 +1,144 @@
+/* ===== 设计 Token（规范见 docs/design.md；换肤只改变量） ===== */
+:root {
+  --primary: #6083F0;
+  --primary-hover: #4A6FE0;
+  --primary-active: #3D5ED0;
+  --primary-bg: #EEF3FE;
+  --primary-bg-light: #F5F8FE;
+  --primary-border: #C7D6FB;
+  --success: #2e7d32;
+  --success-bg: #e8f5e9;
+  --danger: #d9534f;
+  --danger-hover: #c9302c;
+  --warn: #c62828;
+  --text: #333;
+  --text-2: #666;
+  --text-3: #888;
+  --border: #e6e9ef;
+  --bg: #f5f7fa;
+  --card-bg: #fff;
+  --shadow-card: 0 1px 3px rgba(16, 24, 40, 0.06);
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+#root { height: 100%; display: flex; flex-direction: column; }
+body { font-family: "Microsoft YaHei", Arial, sans-serif; background: var(--bg); color: var(--text); }
+
+/* ===== 布局 ===== */
+/* 顶部导航条之后填充剩余高度（导航条在 #root 内自然占据顶部） */
+.layout { display: flex; flex: 1; min-height: 0; }
+.left { flex: 1; display: flex; flex-direction: column; border-right: 1px solid var(--border); }
+.right { width: 400px; padding: 16px; overflow-y: auto; background: var(--card-bg); }
+
+/* 配置编辑页状态条（浅色，避免与顶部导航形成双横条） */
+.toolbar { display: flex; align-items: center; justify-content: space-between; padding: 10px 16px; background: var(--card-bg); color: var(--text); border-bottom: 1px solid #f0f0f0; }
+.toolbar .title { font-weight: bold; font-size: 15px; }
+.toolbar .status { font-size: 12px; color: var(--text-2); }
+.editor-area { flex: 1; position: relative; }
+
+/* ===== 右面板（配置编辑页） ===== */
+.right h2 { font-size: 15px; margin: 0 0 10px; border-bottom: 2px solid var(--primary); padding-bottom: 6px; }
+.right h3 { font-size: 13px; color: var(--primary); margin: 14px 0 8px; }
+
+/* 文件上传 */
+.file-box { border: 2px dashed var(--primary-border); border-radius: 6px; padding: 20px; text-align: center; margin-bottom: 8px; transition: background 0.15s, border-color 0.15s; }
+.file-box:hover { background: var(--primary-bg-light); border-color: var(--primary); }
+.file-box input { display: none; }
+.file-box label { cursor: pointer; color: var(--primary); font-weight: bold; }
+
+/* 信息 */
+.info { background: var(--primary-bg-light); border-radius: 5px; padding: 8px; font-size: 13px; margin-top: 8px; }
+
+/* Sheet 列表 */
+.sheet-list { margin: 4px 0; }
+.sheet-item { background: #f0f2f7; border-radius: 5px; padding: 6px 10px; margin: 4px 0; font-size: 13px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.sheet-item.active { border-left: 3px solid var(--primary); }
+.sheet-item.clickable { cursor: pointer; transition: background 0.15s; }
+.sheet-item.clickable:hover { background: var(--primary-bg); }
+.sheet-item.inserted { border-left: 3px solid var(--success); background: var(--success-bg); }
+
+/* 状态栏高亮（告警时；与页面警示红统一） */
+.status-alert { color: var(--warn); font-weight: 700; }
+.badge { display: inline-block; background: var(--primary); color: #fff; padding: 1px 8px; border-radius: 10px; font-size: 11px; white-space: nowrap; }
+
+/* 位置列表 */
+.pos-list { margin: 4px 0; }
+.pos-item { background: var(--primary-bg); border-radius: 4px; padding: 5px 10px; margin: 3px 0; font-size: 12px; }
+.pos-item.clickable { cursor: pointer; transition: background 0.15s; }
+.pos-item.clickable:hover { background: var(--primary-border); }
+
+/* 绑定列表 */
+.bind-list { margin: 8px 0; }
+.bind-item { background: #f0f2f7; border-radius: 5px; padding: 8px; margin: 6px 0; font-size: 13px; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.bind-item select { padding: 3px; border: 1px solid var(--border); border-radius: 4px; min-width: 120px; }
+
+.hint { font-size: 12px; color: var(--text-3); margin: 8px 0; line-height: 1.5; }
+.actions { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+
+/* ===== 按钮（0.15s 过渡 + 统一圆角） ===== */
+.btn { background: var(--primary); color: #fff; border: none; padding: 8px 14px; border-radius: 6px; cursor: pointer; font-size: 13px; transition: background 0.15s; }
+.btn:hover { background: var(--primary-hover); }
+.btn:active { background: var(--primary-active); }
+.btn.primary { background: var(--primary); }
+.btn.primary:hover { background: var(--primary-hover); }
+.btn.primary:active { background: var(--primary-active); }
+.btn.danger { background: var(--danger); padding: 4px 10px; font-size: 12px; }
+.btn.danger:hover { background: var(--danger-hover); }
+
+/* ===== 输入控件统一（圆角矩形 + 细边 + focus 蓝环立体感；规范见 docs/design.md §4） ===== */
+input[type="text"], input[type="number"], select {
+  background: var(--card-bg); border: 1px solid var(--border); border-radius: 8px;
+  padding: 8px 10px; font-size: 13px; color: var(--text); font-family: inherit;
+  transition: border-color 0.15s, box-shadow 0.15s; outline: none;
+}
+input[type="text"]:hover, input[type="number"]:hover, select:hover { border-color: #c9d2e3; }
+input[type="text"]:focus, input[type="number"]:focus, select:focus {
+  border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-bg);
+}
+input:disabled, select:disabled { background: var(--bg); cursor: not-allowed; }
+
+/* ===== 自绘下拉（SelectField：替代原生 select，弹层贴合主题、无收起闪烁） ===== */
+.sfield-trigger {
+  display: flex; width: 100%; align-items: center; justify-content: space-between; gap: 6px;
+  background: var(--card-bg); border: 1px solid var(--border); border-radius: 8px;
+  padding: 8px 10px; font-size: 13px; color: var(--text); font-family: inherit;
+  cursor: pointer; text-align: left; transition: border-color 0.15s, box-shadow 0.15s; outline: none;
+}
+.sfield-trigger:hover { border-color: #c9d2e3; }
+.sfield-trigger:focus { border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-bg); }
+.sfield-trigger:disabled { background: var(--bg); cursor: not-allowed; }
+.sfield-arrow { color: var(--text-3); font-size: 11px; transition: transform 0.15s; flex: none; }
+.sfield-arrow.open { transform: rotate(180deg); }
+.sfield-menu {
+  position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 30;
+  background: var(--card-bg); border: 1px solid var(--border); border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(16, 24, 40, 0.12); padding: 4px;
+  max-height: 220px; overflow-y: auto;
+}
+.sfield-opt {
+  padding: 7px 10px; border-radius: 6px; font-size: 13px; color: var(--text);
+  cursor: pointer; transition: background 0.15s;
+}
+.sfield-opt:hover { background: var(--primary-bg); }
+.sfield-opt.active { color: var(--primary); font-weight: 600; background: var(--primary-bg-light); }
+
+/* ===== 页面公共类（模板列表页 / 制函页共用，收敛内联样式） ===== */
+
+/* 顶部导航条 */
+.nav { padding: 8px 16px; background: var(--primary); display: flex; gap: 8px; align-items: center; }
+.nav-brand { color: rgba(255,255,255,0.85); font-size: 13px; margin-right: 8px; }
+.nav-link { color: #fff; text-decoration: none; font-weight: 400; padding: 4px 10px; border-radius: 4px; transition: background 0.15s; }
+.nav-link:hover { background: rgba(255,255,255,0.12); }
+.nav-link.active { font-weight: 700; background: rgba(255,255,255,0.2); }
+
+/* 页面容器与卡片（细边框 + 极轻投影 + 10px 圆角） */
+.page { max-width: 760px; margin: 0 auto; padding: 16px; }
+.card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 10px; padding: 16px; box-shadow: var(--shadow-card); }
+.card h3 { margin: 0 0 8px; }
+
+/* 页面状态条（制函页状态 / 列表页底部说明） */
+.status-line { margin-top: 16px; padding: 10px; background: #f5f5f5; border-radius: 6px; font-size: 13px; color: var(--text-2); }
+
+/* 统一警示红（与 .status-alert 一致） */
+.warn-red { color: var(--warn); }
