@@ -1,0 +1,18 @@
+﻿import { chromium } from 'playwright';
+const b = await chromium.launch({ channel: 'msedge', headless: true });
+const p = await b.newPage({ viewport: { width: 1280, height: 860 } });
+p.on('dialog', async d => { console.log('DIALOG:', d.message().substring(0, 100)); await d.dismiss(); });
+await p.goto('http://127.0.0.1:5173/#/generate');
+await p.waitForTimeout(2500);
+await p.click('.sfield-trigger');
+await p.waitForTimeout(400);
+await p.locator('.sfield-opt', { hasText: '往来函证配置1' }).click();
+await p.waitForTimeout(500);
+await p.setInputFiles('#gen-excel', 'e:/13_dingdian/03_demo/04_Letter_Gen/data/样例/多函证-往来非标询证函-数据导入模版.xlsx');
+await p.waitForSelector('table tbody tr', { timeout: 15000 });
+await p.waitForTimeout(1200);
+const info = await p.evaluate(() => { const els = document.querySelectorAll('.info'); return els[els.length - 1].textContent; });
+console.log('INFO:', info);
+await p.screenshot({ path: 'docs/images/ui_03b_制函页匹配结果.png' });
+await b.close();
+console.log('DONE');
