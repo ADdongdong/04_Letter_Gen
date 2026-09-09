@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <script type="text/javascript" src="https://onlyoffice.github.io/sdkjs-plugins/v1/plugins.js"></script>
+  <script type="text/javascript" src="https://onlyoffice.github.io/sdkjs-plugins/v1/plugins-ui.js"></script>
+  <link rel="stylesheet" href="https://onlyoffice.github.io/sdkjs-plugins/v1/plugins.css">
+  <script type="text/javascript" src="http://ip:port/onlyoffice/web-apps/apps/api/documents/api.js"></script>
+</head>
+<body>
+<script>
+  (function (window) {
+
+    // 监听来自父窗口的消息
+    window.addEventListener('message', function (e) {
+      if (e.data && e.data.type === 'insertText') {
+        insertText(e.data.text);
+      }
+    });
+
+    // 插件初始化
+    window.Asc.plugin.init = function () {
+      console.log('TextConnector initialized');
+      window.postMessage({
+        type: 'connectorReady',
+        guid: window.Asc.plugin.info.guid
+      }, '*');
+    };
+    function insertText(text) {
+      try {
+        Asc.scope.text = text;
+        window.Asc.plugin.callCommand(function () {
+          var oDocument = Api.GetDocument();
+          var oParagraph = Api.CreateParagraph();
+          oParagraph.AddText(Asc.scope.text);
+          oDocument.InsertContent([oParagraph]);
+          return true;
+        }, function (result) {
+          // 回调结果
+          window.postMessage({
+            type: 'insertResult',
+            success: result
+          }, '*');
+        });
+      } catch (err) {
+        console.error('Insert failed:', err);
+      }
+    }
+    // 暴露全局方法
+    window.insertText = insertText;
+
+  })(window);
+</script>
+</body>
+</html>
