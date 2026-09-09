@@ -177,7 +177,14 @@ export default function RightPanel({ ready, insertText, forceSave, updateStatus,
         <label htmlFor="tpl-file">📝 点击选择 Word 模板 (.docx)</label>
         <input id="tpl-file" type="file" accept=".docx" onChange={onTemplateChange} />
       </div>
-      <div className="info">{tplInfo}</div>
+      <div className="info">
+        {tplInfo}
+        {!tplInfo && (
+          <div style={{ marginTop: '4px' }}>
+            没有现成模板？<a href="/api/templates/sample/word" download>📥 下载示例 Word 模板</a>，修改内容后上传即可
+          </div>
+        )}
+      </div>
 
       <h2 style={{ marginTop: '16px' }}>2. 上传 Excel（多 Sheet）</h2>
       <div className="file-box">

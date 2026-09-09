@@ -17,7 +17,8 @@ from flask import Flask, request, render_template_string, jsonify, send_file, ur
 from render_engine import (
     read_excel_sheets, read_excel_grouped, extract_placeholder_bindings,
     render_template, get_text_width, _table_width_twips, extract_anchors, annotate_bindings,
-    DEFAULT_TABLE_STYLE, _resolve_style,
+    DEFAULT_TABLE_STYLE, _resolve_style, _GROUP_COL_AUDIT as GROUP_COL_AUDIT,
+    _GROUP_COL_CONFIRM as GROUP_COL_CONFIRM,
 )
 from docx import Document
 
@@ -357,6 +358,45 @@ def download(fname):
     ext = os.path.splitext(fname)[1].lower()
     download_name = '渲染结果.zip' if ext == '.zip' else '渲染结果.docx'
     return send_file(path, as_attachment=True, download_name=download_name)
+
+
+# ============ 模板下载（示例 Word + 批量制函 Excel 导入模板）============
+@app.route('/api/templates/sample/word')
+def sample_word():
+    """示例 Word 模板下载（static-docs/demo_template.docx）"""
+    if not os.path.exists(DEFAULT_TPL):
+        return jsonify({'error': '示例 Word 模板缺失'}), 404
+    return send_file(DEFAULT_TPL, as_attachment=True,
+                     mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                     download_name='函证模板示例.docx')
+
+
+@app.route('/api/templates/sample/excel')
+def sample_excel():
+    """批量制函 Excel 导入模板下载：动态生成。
+    各 Sheet 表头前两列为「被审计单位」「被询证单位」（分组列），其余列填示例数据；
+    示例单位组合用函证登记数据中已存在的（下载后可直接体验制函）。"""
+    from openpyxl import Workbook
+    audit1, confirm1 = '顶点软件', '中信证券股份有限公司'
+    audit2, confirm2 = '顶点软件', '国泰君安证券股份有限公司'
+    sheets_def = [
+        ('科目余额分录', ['科目', '期初余额', '期末余额']),
+        ('非标事项', ['事项说明', '金额']),
+        ('票据事项', ['票据种类', '出票日期', '票面金额']),
+    ]
+    wb = Workbook()
+    wb.remove(wb.active)
+    for name, cols in sheets_def:
+        ws = wb.create_sheet(name)
+        ws.append([GROUP_COL_AUDIT, GROUP_COL_CONFIRM] + cols)
+        ws.append([audit1, confirm1] + ['示例' + c for c in cols])
+        ws.append([audit2, confirm2] + ['示例' + c for c in cols])
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return send_file(buf, as_attachment=True,
+                     mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                     download_name='批量制函数据导入模板.xlsx')
 
 
 # ============ 模板配置存储（templates_store：配置页维护，制函页引用） ============
