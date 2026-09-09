@@ -51,3 +51,9 @@ Thumbs.db
 
 # ===== 前端缓存 =====
 .vite/
+.env
+*.env
+*.key
+*.pem
+credentials.json
+secrets/
