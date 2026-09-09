@@ -150,7 +150,13 @@ export default function GeneratePage() {
           <label htmlFor="gen-excel">📊 点击选择 Excel (.xlsx)</label>
           <input id="gen-excel" type="file" accept=".xlsx,.xlsm" onChange={onExcelChange} disabled={!tplId} />
         </div>
-        <div className="info">{excelInfo}</div>
+        <div className="info">
+          {excelInfo}
+          <div style={{ marginTop: '4px' }}>
+            <a href="/api/templates/sample/excel" download>📥 下载数据导入模板（含示例数据）</a>
+            ，按模板填入实际数据后上传
+          </div>
+        </div>
         {/* 函证编号匹配结果：未匹配行红色，制函时跳过 */}
         {matchResults.length > 0 && (
           <div style={{ marginTop: '10px' }}>
