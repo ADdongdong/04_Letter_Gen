@@ -68,7 +68,7 @@ export default function HelpPage() {
             并把单位组合与<b>函证系统登记数据</b>比对——匹配成功带出函证编号，
             <span className="warn-red">未匹配的组合（红色行）整封跳过</span>；
           </li>
-          <li>点【制函】→ 每封函证独立渲染 → ZIP 自动下载。</li>
+          <li>点【制函】→ 每封函证独立渲染</li>
         </ol>
       </div>
 
@@ -108,7 +108,7 @@ export default function HelpPage() {
         <h3>✅ 建议的上手路径</h3>
         <p style={{ lineHeight: 1.8 }}>
           下载示例 Word 模板 → 新增模板上传它 + 上传一份 Sheet 结构 Excel → 随便标注一个位置 →
-          保存 → 到制函页下载数据导入模板 → 原样上传 → 点制函 → 打开 ZIP 看效果。
+          保存 → 到制函页下载数据导入模板 → 原样上传 → 点制函 → 即可在【制函管理】模块查看制作好的函证并进行下载（完成）。
           全程约 5 分钟，即可理解全部流程。
         </p>
       </div>
